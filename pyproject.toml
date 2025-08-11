@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gigastep"
+version = "0.0.1"
+description = "Fork of Gigastep: JAX multi-agent environment"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Mathias Lechner" }
+]
+maintainers = [
+    {name = "Chulabhaya Wijesundara" },
+]
+dependencies = ["distrax", "optax", "gymnax", "chex", "pygame", "flax"]
+keywords = ["multi-agent", "reinforcement learning", "python", "jax"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gigastep", "gigastep.*"]
+# keep these out of the install
+exclude = ["baselines*", "examples*", "misc*", "third-party-learning*"]
+
+[project.urls]
+Homepage = "https://github.com/mlech26l/gigastep"
+Upstream = "https://github.com/Chulabhaya/gigastep"
