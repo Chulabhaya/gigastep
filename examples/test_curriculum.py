@@ -1,5 +1,6 @@
-from gigastep import make_scenario
 import jax
+
+from gigastep import make_scenario
 
 env = make_scenario("identical_20_vs_20")
 rng = jax.random.PRNGKey(3)
@@ -10,9 +11,7 @@ obs, state = env.reset(key_reset)
 state = env.set_aux_reward_factor(state, 0.5)
 while not ep_done:
     rng, key_action, key_step = jax.random.split(rng, 3)
-    action = jax.random.uniform(
-        key_action, shape=(env.n_agents, 3), minval=-1, maxval=1
-    )
+    action = jax.random.uniform(key_action, shape=(env.n_agents, 3), minval=-1, maxval=1)
     obs, state, rewards, dones, ep_done = env.step(state, action, key_step)
     # obs is an uint8 array of shape [n_agents, 84,84,3]
     # rewards is a float32 array of shape [n_agents]
@@ -20,9 +19,10 @@ while not ep_done:
     # ep_done is a bool
 
 
-from gigastep import make_scenario
 import jax
 import jax.numpy as jnp
+
+from gigastep import make_scenario
 
 batch_size = 32
 env = make_scenario("identical_20_vs_20")
@@ -50,4 +50,3 @@ while not jnp.all(ep_dones):
     if jnp.any(ep_dones):
         rng, key = jax.random.split(rng, 2)
         obs, state = env.reset_done_episodes(obs, state, ep_dones, key)
-        

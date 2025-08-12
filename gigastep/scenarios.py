@@ -1,7 +1,8 @@
 import copy
 
-from gigastep import GigastepEnv
 import jax.numpy as jnp
+
+from gigastep import GigastepEnv
 
 
 class ScenarioBuilder:
@@ -369,9 +370,7 @@ def _merge_with_base_scenarios(scenarios):
 
 _builtin_scenarios = _make_cont_and_discrete_action_space(
     _make_with_and_without_maps(
-        _make_rgb_and_vec_obs(
-            _make_partially_and_fully_observable(_builtin_base_scenarios)
-        )
+        _make_rgb_and_vec_obs(_make_partially_and_fully_observable(_builtin_base_scenarios))
     )
 )
 
@@ -384,10 +383,7 @@ def make_scenario(name, **kwargs):
     :param kwargs: Named arguments will be passed to the GigastepEnv constructor (__init__)
     :return: A GigastepEnv object
     """
-    if (
-        name not in _builtin_scenarios.keys()
-        and name not in _builtin_base_scenarios.keys()
-    ):
+    if name not in _builtin_scenarios.keys() and name not in _builtin_base_scenarios.keys():
         raise ValueError(f"Scenario {name} not found.")
 
     if name in _builtin_scenarios.keys():
@@ -406,5 +402,5 @@ if __name__ == "__main__":
     print("| Scenario | Map |")
     print("| --- | --- |")
     for scenario in list_scenarios():
-        print(f"| {scenario} | {_builtin_scenarios[scenario].get('maps','-')} |")
+        print(f"| {scenario} | {_builtin_scenarios[scenario].get('maps', '-')} |")
     print(f"Total: {len(list_scenarios())} scenarios")

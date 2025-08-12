@@ -3,9 +3,8 @@ import time
 
 import jax
 import jax.numpy as jnp
-from gigastep import GigastepEnv, stack_agents
-from gigastep import GigastepViewer
 
+from gigastep import GigastepEnv, GigastepViewer, stack_agents
 
 SLEEP_TIME = 0.01
 
@@ -194,48 +193,30 @@ def loop_agent_sprites():
         if z > dyn.z_max:
             z = dyn.z_min
         state = [
-            GigastepEnv.get_initial_state(
-                y=6, x=1, z=z, heading=jnp.pi / 4, team=0, sprite=5
-            ),
-            GigastepEnv.get_initial_state(
-                y=2, x=3, v=0, heading=jnp.pi / 4, team=1, sprite=1
-            ),
-            GigastepEnv.get_initial_state(
-                y=2, x=7, v=0, heading=jnp.pi / 4, team=0, sprite=1
-            ),
+            GigastepEnv.get_initial_state(y=6, x=1, z=z, heading=jnp.pi / 4, team=0, sprite=5),
+            GigastepEnv.get_initial_state(y=2, x=3, v=0, heading=jnp.pi / 4, team=1, sprite=1),
+            GigastepEnv.get_initial_state(y=2, x=7, v=0, heading=jnp.pi / 4, team=0, sprite=1),
             GigastepEnv.get_initial_state(
                 y=2, x=1, z=dyn.z_max, heading=jnp.pi / 4, team=1, sprite=1
             ),
             GigastepEnv.get_initial_state(
                 y=2, x=9, z=dyn.z_max, heading=jnp.pi / 4, team=0, sprite=1
             ),
-            GigastepEnv.get_initial_state(
-                y=4, x=3, v=0, heading=jnp.pi / 4, team=0, sprite=3
-            ),
-            GigastepEnv.get_initial_state(
-                y=4, x=7, v=0, heading=jnp.pi / 4, team=1, sprite=3
-            ),
+            GigastepEnv.get_initial_state(y=4, x=3, v=0, heading=jnp.pi / 4, team=0, sprite=3),
+            GigastepEnv.get_initial_state(y=4, x=7, v=0, heading=jnp.pi / 4, team=1, sprite=3),
             GigastepEnv.get_initial_state(
                 y=4, x=1, z=dyn.z_max, heading=jnp.pi / 4, team=0, sprite=3
             ),
             GigastepEnv.get_initial_state(
                 y=4, x=9, z=dyn.z_max, heading=jnp.pi / 4, team=1, sprite=3
             ),
-            GigastepEnv.get_initial_state(
-                y=6, x=3, v=0, heading=jnp.pi / 4, team=0, sprite=5
-            ),
-            GigastepEnv.get_initial_state(
-                y=6, x=7, v=0, heading=jnp.pi / 4, team=1, sprite=5
-            ),
+            GigastepEnv.get_initial_state(y=6, x=3, v=0, heading=jnp.pi / 4, team=0, sprite=5),
+            GigastepEnv.get_initial_state(y=6, x=7, v=0, heading=jnp.pi / 4, team=1, sprite=5),
             GigastepEnv.get_initial_state(
                 y=6, x=9, z=dyn.z_max, heading=jnp.pi / 4, team=1, sprite=5
             ),
-            GigastepEnv.get_initial_state(
-                y=8, x=3, v=0, heading=jnp.pi / 4, team=0, sprite=7
-            ),
-            GigastepEnv.get_initial_state(
-                y=8, x=7, v=0, heading=jnp.pi / 4, team=1, sprite=7
-            ),
+            GigastepEnv.get_initial_state(y=8, x=3, v=0, heading=jnp.pi / 4, team=0, sprite=7),
+            GigastepEnv.get_initial_state(y=8, x=7, v=0, heading=jnp.pi / 4, team=1, sprite=7),
             GigastepEnv.get_initial_state(
                 y=8, x=1, z=dyn.z_max, heading=jnp.pi / 4, team=0, sprite=7
             ),
@@ -271,17 +252,11 @@ def loop_collision_with_offset():
             y=2.1, x=dyn.limits[0], heading=jnp.pi, team=0, detection_range=100
         )
         s3 = GigastepEnv.get_initial_state(y=4, team=1)
-        s4 = GigastepEnv.get_initial_state(
-            y=4.2, x=dyn.limits[0], heading=jnp.pi, team=0
-        )
+        s4 = GigastepEnv.get_initial_state(y=4.2, x=dyn.limits[0], heading=jnp.pi, team=0)
         s5 = GigastepEnv.get_initial_state(y=6, team=1)
-        s6 = GigastepEnv.get_initial_state(
-            y=6.3, x=dyn.limits[0], heading=jnp.pi, team=1
-        )
+        s6 = GigastepEnv.get_initial_state(y=6.3, x=dyn.limits[0], heading=jnp.pi, team=1)
         s7 = GigastepEnv.get_initial_state(y=8, team=1)
-        s8 = GigastepEnv.get_initial_state(
-            y=8.4, x=dyn.limits[0], heading=jnp.pi, team=1
-        )
+        s8 = GigastepEnv.get_initial_state(y=8.4, x=dyn.limits[0], heading=jnp.pi, team=1)
         state = stack_agents(s1, s2, s3, s4, s5, s6, s7, s8)
         t = 0
         while jnp.sum(dyn.get_dones(state)) > 0:

@@ -1,18 +1,18 @@
 import glob
 import os
 
+import flax.linen as nn
+import jax
+import jax.numpy as jnp
 import numpy as np
 import optax
-import jax.numpy as jnp
-import jax
 import orbax
+import orbax.checkpoint
+import tensorflow as tf
 from flax.training.train_state import TrainState
-import flax.linen as nn
 from tqdm import tqdm
 
 from gigastep import make_scenario
-import tensorflow as tf
-import orbax.checkpoint
 
 # disable gpu
 tf.config.set_visible_devices([], "GPU")
@@ -42,9 +42,7 @@ def train_step(state, batch_x, batch_y):
 
     def loss_fn(params):
         logits = state.apply_fn({"params": params}, batch_x)
-        loss = optax.softmax_cross_entropy_with_integer_labels(
-            logits=logits, labels=batch_y
-        ).mean()
+        loss = optax.softmax_cross_entropy_with_integer_labels(logits=logits, labels=batch_y).mean()
         return loss, logits
 
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
@@ -77,9 +75,7 @@ ENV_KWARGS = {
 def main():
     train_x, train_y = read_files("human_data")
     print("train_x.shape", train_x.shape, "train_y.shape", train_y.shape)
-    train_ds = (
-        tf.data.Dataset.from_tensor_slices((train_x, train_y)).shuffle(10000).batch(32)
-    )
+    train_ds = tf.data.Dataset.from_tensor_slices((train_x, train_y)).shuffle(10000).batch(32)
     env = make_scenario("identical_5_vs_5", **ENV_KWARGS)
 
     class MLP(nn.Module):  # create a Flax Module dataclass
@@ -110,7 +106,7 @@ def main():
             total_acc += acc
             pbar.update(1)
             pbar.set_description(
-                f"Epoch: {epoch}, accuracy: {total_acc*100 / (pbar.n + 1):0.2f}%"
+                f"Epoch: {epoch}, accuracy: {total_acc * 100 / (pbar.n + 1):0.2f}%"
             )
         pbar.close()
     checkpointer = orbax.checkpoint.PyTreeCheckpointer()

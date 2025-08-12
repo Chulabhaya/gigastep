@@ -1,7 +1,6 @@
 import time
 
 import numpy as np
-import time
 
 
 class JoystickInput:
@@ -10,8 +9,7 @@ class JoystickInput:
         self.pygame.joystick.init()
 
         joysticks = [
-            self.pygame.joystick.Joystick(x)
-            for x in range(self.pygame.joystick.get_count())
+            self.pygame.joystick.Joystick(x) for x in range(self.pygame.joystick.get_count())
         ]
         joy = None
         self.map_fn = self._map_default

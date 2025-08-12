@@ -1,10 +1,9 @@
-from typing import Sequence, Tuple
-import numpy as np
-import jax
-import jax.numpy as jnp
-import chex
+from typing import Sequence
+
 import distrax
 import flax.linen as nn
+import jax.numpy as jnp
+import numpy as np
 from flax.linen.initializers import constant, orthogonal
 
 
@@ -23,7 +22,7 @@ class ActorCriticMLP(nn.Module):
             activation = nn.tanh
 
         if self.has_cnn:
-            if len(x.shape) < 4: # convert flattened image obs to image
+            if len(x.shape) < 4:  # convert flattened image obs to image
                 x = x.reshape(x.shape[:-1] + self.obs_shape[:-1] + (-1,))
 
             if len(x.shape) == 4:
@@ -31,7 +30,7 @@ class ActorCriticMLP(nn.Module):
                 team2 = self.teams[:, None]
                 team1_for_cnn = (1 - self.teams)[:, None, None, None]
                 team2_for_cnn = self.teams[:, None, None, None]
-            else: # with num_env dim
+            else:  # with num_env dim
                 team1 = (1 - self.teams)[None, :, None]
                 team2 = self.teams[None, :, None]
                 team1_for_cnn = (1 - self.teams)[None, :, None, None, None]
@@ -40,12 +39,12 @@ class ActorCriticMLP(nn.Module):
             if len(x.shape) == 2:
                 team1 = (1 - self.teams)[:, None]
                 team2 = self.teams[:, None]
-            else: # with num_env dim
+            else:  # with num_env dim
                 team1 = (1 - self.teams)[None, :, None]
                 team2 = self.teams[None, :, None]
             team1_for_cnn = team1
             team2_for_cnn = team2
-        
+
         actor_mean_team1 = self._infer_actor(x, activation, scope="actor/team1/")
         actor_mean_team2 = self._infer_actor(x, activation, scope="actor/team2/")
         # ##
@@ -55,12 +54,16 @@ class ActorCriticMLP(nn.Module):
         actor_mean = actor_mean_team1 * team1 + actor_mean_team2 * team2
         pi = distrax.Categorical(logits=actor_mean)
 
-        critic_team1 = self._infer_critic(x, activation, team1, team1_for_cnn, scope="critic/team1/")
-        critic_team2 = self._infer_critic(x, activation, team1, team2_for_cnn, scope="critic/team2/")
+        critic_team1 = self._infer_critic(
+            x, activation, team1, team1_for_cnn, scope="critic/team1/"
+        )
+        critic_team2 = self._infer_critic(
+            x, activation, team1, team2_for_cnn, scope="critic/team2/"
+        )
         critic = critic_team1 * team1 + critic_team2 * team2
 
         return pi, jnp.squeeze(critic, axis=-1)
-    
+
     def _infer_actor(self, x, activation, scope=""):
         if self.has_cnn:
             actor_mean = nn.Conv(features=64, kernel_size=(3, 3))(x)
@@ -76,20 +79,31 @@ class ActorCriticMLP(nn.Module):
                 actor_mean = nn.Conv(features=256, kernel_size=(1, 1))(actor_mean)
                 actor_mean = actor_mean.mean(-2).mean(-2)
             else:
-                actor_mean = actor_mean.reshape(actor_mean.shape[:-3] + (np.prod(actor_mean.shape[-3:]),))
+                actor_mean = actor_mean.reshape(
+                    actor_mean.shape[:-3] + (np.prod(actor_mean.shape[-3:]),)
+                )
                 actor_mean = nn.Dense(features=1024)(actor_mean)
             actor_mean = activation(actor_mean)
         else:
             actor_mean = nn.Dense(
-                64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0), name=scope+"dense_0",
+                64,
+                kernel_init=orthogonal(np.sqrt(2)),
+                bias_init=constant(0.0),
+                name=scope + "dense_0",
             )(x)
             actor_mean = activation(actor_mean)
             actor_mean = nn.Dense(
-                64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0), name=scope+"dense_1",
+                64,
+                kernel_init=orthogonal(np.sqrt(2)),
+                bias_init=constant(0.0),
+                name=scope + "dense_1",
             )(actor_mean)
             actor_mean = activation(actor_mean)
         actor_mean = nn.Dense(
-            self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0), name=scope+"last",
+            self.action_dim,
+            kernel_init=orthogonal(0.01),
+            bias_init=constant(0.0),
+            name=scope + "last",
         )(actor_mean)
 
         return actor_mean
@@ -118,16 +132,26 @@ class ActorCriticMLP(nn.Module):
             critic = self._mix_team_critic(critic, team)
         else:
             critic = nn.Dense(
-                64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0), name=scope+"dense_0",
+                64,
+                kernel_init=orthogonal(np.sqrt(2)),
+                bias_init=constant(0.0),
+                name=scope + "dense_0",
             )(x)
             critic = activation(critic)
             critic = self._mix_team_critic(critic, team)
             critic = nn.Dense(
-                64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0), name=scope+"dense_1",
+                64,
+                kernel_init=orthogonal(np.sqrt(2)),
+                bias_init=constant(0.0),
+                name=scope + "dense_1",
             )(critic)
             critic = activation(critic)
             critic = self._mix_team_critic(critic, team)
-        critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0), name=scope+"last",
+        critic = nn.Dense(
+            1,
+            kernel_init=orthogonal(1.0),
+            bias_init=constant(0.0),
+            name=scope + "last",
         )(critic)
 
         return critic
@@ -147,6 +171,7 @@ class ActorCriticMLP(nn.Module):
 class ActorCriticLSTM(nn.Module):
     action_dim: Sequence[int]
     activation: str = "tanh"
+
 
 #     @nn.compact
 #     def __init__(

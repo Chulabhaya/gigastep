@@ -1,29 +1,27 @@
 import os
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
+
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["TF_CUDNN_DETERMINISTIC"] = "1"
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 # os.environ['JAX_DISABLE_JIT'] = '1'
 
+import random
+import time
+from collections import deque
+from datetime import datetime
+
 import jax
 import jax.numpy as jnp
-from evosax import Strategies, ParameterReshaper
+import numpy as np
+import tqdm
+import yaml
+from evosax import ParameterReshaper, Strategies
+from evosax.utils import ESLog
 from learning.evosax.networks import NetworkMapperGiga
 from learning.evosax.problems.gigastep import GigastepFitness
-from evosax.utils import ESLog
-import tqdm
-
-import time
-from datetime import datetime
-import numpy as np
-
-from collections import deque
-import random
-
-import yaml
 
 
 def network_setup(train_evaluator, test_evaluator, rng, env_cfg, net_type="CNN"):
-    
     output_activation = "tanh_gaussian"  # "tanh_gaussian"
     output_dimensions = 3
     if "discrete_actions" in env_cfg:
@@ -31,7 +29,7 @@ def network_setup(train_evaluator, test_evaluator, rng, env_cfg, net_type="CNN")
             output_activation = "categorical"
             output_dimensions = 9
 
-    if net_type=="MLP":
+    if net_type == "MLP":
         network = NetworkMapperGiga["MLP"](
             num_hidden_units=256,
             num_hidden_layers=2,
@@ -49,7 +47,7 @@ def network_setup(train_evaluator, test_evaluator, rng, env_cfg, net_type="CNN")
         train_evaluator.set_apply_fn(network.apply)
         test_evaluator.set_apply_fn(network.apply)
 
-    elif net_type=="CNN":
+    elif net_type == "CNN":
         network = NetworkMapperGiga["CNN"](
             depth_1=1,
             depth_2=1,
@@ -75,7 +73,7 @@ def network_setup(train_evaluator, test_evaluator, rng, env_cfg, net_type="CNN")
         train_evaluator.set_apply_fn(network.apply)
         test_evaluator.set_apply_fn(network.apply)
 
-    elif net_type=='LSTM':
+    elif net_type == "LSTM":
         network = NetworkMapperGiga["LSTM"](
             num_hidden_units=32,  # 32,
             num_output_units=output_dimensions,
@@ -93,7 +91,7 @@ def network_setup(train_evaluator, test_evaluator, rng, env_cfg, net_type="CNN")
         train_evaluator.set_apply_fn(network.apply, network.initialize_carry)
         test_evaluator.set_apply_fn(network.apply, network.initialize_carry)
 
-    elif net_type=="LSTM_CNN":
+    elif net_type == "LSTM_CNN":
         network = NetworkMapperGiga["LSTM_CNN"](
             # CNN
             num_output_units_cnn=128,  # 64,
@@ -125,7 +123,7 @@ def network_setup(train_evaluator, test_evaluator, rng, env_cfg, net_type="CNN")
 
         train_evaluator.set_apply_fn(network.apply, network.initialize_carry)
         test_evaluator.set_apply_fn(network.apply, network.initialize_carry)
-      
+
     else:
         raise NotImplementedError
 
@@ -133,15 +131,14 @@ def network_setup(train_evaluator, test_evaluator, rng, env_cfg, net_type="CNN")
 
 
 def run_gigastep_fitness(
-  scenario_name: str = "identical_5_vs_5", 
-  # strategy_name: str = ["OpenES"],
-  alg_cfgs: dict = {},
-  network_type: str = "LSTM_CNN",
-  env_cfg: dict = {}
-  ):
+    scenario_name: str = "identical_5_vs_5",
+    # strategy_name: str = ["OpenES"],
+    alg_cfgs: dict = {},
+    network_type: str = "LSTM_CNN",
+    env_cfg: dict = {},
+):
     # for s_name in strategy_name:
     for alg_cfg in alg_cfgs:
-        
         s_name = alg_cfg["strategy_name"]
         c_name = alg_cfg["config_name"]
         num_generations = 1000
@@ -159,17 +156,30 @@ def run_gigastep_fitness(
 
         # if log_tensorboard:
         from torch.utils.tensorboard import SummaryWriter
-        logdir = './logdir/evosax/' + s_name.lower() + '/' + scenario_name.lower() + '/' +  c_name.lower() + '/' + datetime.now().strftime("%y_%m_%d_%H_%M_%S")
+
+        logdir = (
+            "./logdir/evosax/"
+            + s_name.lower()
+            + "/"
+            + scenario_name.lower()
+            + "/"
+            + c_name.lower()
+            + "/"
+            + datetime.now().strftime("%y_%m_%d_%H_%M_%S")
+        )
         writer = SummaryWriter(log_dir=logdir, flush_secs=10)
 
-        with open(logdir + '/cfg.yml', 'w') as outfile:
+        with open(logdir + "/cfg.yml", "w") as outfile:
             yaml.dump(alg_cfg, outfile, default_flow_style=False)
-
 
         rng = jax.random.PRNGKey(0)
 
-        train_evaluator = GigastepFitness(scenario_name, num_rollouts=20, test=False, n_devices=n_devices, env_cfg=env_cfg)
-        test_evaluator = GigastepFitness(scenario_name, num_rollouts=20, test=True, n_devices=1, env_cfg=env_cfg)
+        train_evaluator = GigastepFitness(
+            scenario_name, num_rollouts=20, test=False, n_devices=n_devices, env_cfg=env_cfg
+        )
+        test_evaluator = GigastepFitness(
+            scenario_name, num_rollouts=20, test=True, n_devices=1, env_cfg=env_cfg
+        )
 
         # Initialize network depending on type
         out = network_setup(train_evaluator, test_evaluator, rng, env_cfg, net_type=network_type)
@@ -194,7 +204,9 @@ def run_gigastep_fitness(
         # else:
         #     pass
 
-        strategy = Strategies[s_name](**strategy_params, num_dims=train_param_reshaper.total_params, maximize=True)
+        strategy = Strategies[s_name](
+            **strategy_params, num_dims=train_param_reshaper.total_params, maximize=True
+        )
         es_params = strategy.default_params
         if "params" in alg_cfg.keys():
             es_params = es_params.replace(**alg_cfg["params"])
@@ -232,12 +244,12 @@ def run_gigastep_fitness(
                 x_test = jnp.stack([best_params, mean_params], axis=0)
                 x_test_re = test_param_reshaper.reshape(x_test)
 
-                x_mean_test = jnp.repeat(es_state_mean[None], x_test.shape[0], 0)  # TODO: check if repeat can be removed
+                x_mean_test = jnp.repeat(
+                    es_state_mean[None], x_test.shape[0], 0
+                )  # TODO: check if repeat can be removed
                 x_mean_test_re = test_param_reshaper.reshape(x_mean_test)
 
-                test_returns = test_evaluator.rollout(
-                    rng_test, x_test_re, x_mean_test_re
-                )
+                test_returns = test_evaluator.rollout(rng_test, x_test_re, x_mean_test_re)
                 if debug_reward:
                     test_scores, test_images_global, _, _ = test_returns
                 else:
@@ -251,26 +263,28 @@ def run_gigastep_fitness(
                     frames_glb = np.array(test_images_global[id_prm, id_run])
 
                     frames_glb = np.transpose(frames_glb, (0, 3, 1, 2))  # (T, C, W, H)
-                    frames_glb = np.expand_dims(frames_glb, axis=0)      # (N, T, C, W, H)
+                    frames_glb = np.expand_dims(frames_glb, axis=0)  # (N, T, C, W, H)
                     writer.add_video("test/video-all", frames_glb, global_step=gen, fps=15)
-                
+
                 test_return_to_log = test_scores[1]
                 log_steps.append(train_evaluator.total_env_steps)
                 log_return.append(test_return_to_log)
-                t.set_description(f"R: " + "{:.3f}".format(test_return_to_log.item()))
+                t.set_description("R: " + "{:.3f}".format(test_return_to_log.item()))
                 t.refresh()
-            
+
             # Sample parameters for the ego team
             x, es_state = strategy.ask(rng_gen, es_state)
             x_re = train_param_reshaper.reshape(x)
 
             # Get mean parameters for the ado team
-            if (gen-1) % extend_ado_freq == 0:
+            if (gen - 1) % extend_ado_freq == 0:
                 es_state_mean = es_state.mean.copy()
-                x_mean = jnp.repeat(es_state_mean[None], x.shape[0], 0)  # TODO: check if repeat can be removed
+                x_mean = jnp.repeat(
+                    es_state_mean[None], x.shape[0], 0
+                )  # TODO: check if repeat can be removed
                 params_ado = train_param_reshaper.reshape(x_mean)
                 params_ado_buffer.append(params_ado)
-            if (gen-1) % update_ado_freq == 0:
+            if (gen - 1) % update_ado_freq == 0:
                 x_mean_re = random.sample(list(params_ado_buffer), 1)[0]
 
             # Rollout fitness and update parameter distribution
@@ -288,17 +302,17 @@ def run_gigastep_fitness(
 
             if log_tensorboard:
                 for key, value in es_log.items():
-                    if not "params" in key:
-                        val = value[gen-1] if len(value.shape) else value
-                        writer.add_scalar('train/' + key, np.array(val), gen)
+                    if "params" not in key:
+                        val = value[gen - 1] if len(value.shape) else value
+                        writer.add_scalar("train/" + key, np.array(val), gen)
                 if reward_info:
                     for key, value in reward_info.items():
-                        val = value[gen-1] if len(value.shape) else value
-                        writer.add_scalar('train/' + key, np.array(val), gen)
+                        val = value[gen - 1] if len(value.shape) else value
+                        writer.add_scalar("train/" + key, np.array(val), gen)
                 for key, value in act_info.items():
-                        for idx, val in enumerate(value):
-                            val = val[gen-1] if len(val.shape) else val
-                            writer.add_scalar('train/' + key + '_dim' + str(idx), np.array(val), gen)
+                    for idx, val in enumerate(value):
+                        val = val[gen - 1] if len(val.shape) else val
+                        writer.add_scalar("train/" + key + "_dim" + str(idx), np.array(val), gen)
 
         # Sporadically evaluate the mean & best performance on test evaluator.
         if True:
@@ -310,12 +324,12 @@ def run_gigastep_fitness(
             x_test = jnp.stack([best_params, mean_params], axis=0)
             x_test_re = test_param_reshaper.reshape(x_test)
 
-            x_mean_test = jnp.repeat(es_state_mean[None], x_test.shape[0], 0)  # TODO: check if repeat can be removed
+            x_mean_test = jnp.repeat(
+                es_state_mean[None], x_test.shape[0], 0
+            )  # TODO: check if repeat can be removed
             x_mean_test_re = test_param_reshaper.reshape(x_mean_test)
 
-            test_returns = test_evaluator.rollout(
-                rng_test, x_test_re, x_mean_test_re
-            )
+            test_returns = test_evaluator.rollout(rng_test, x_test_re, x_mean_test_re)
             if debug_reward:
                 test_scores, test_images_global, _, _ = test_returns
             else:
@@ -329,22 +343,21 @@ def run_gigastep_fitness(
                 frames_glb = np.array(test_images_global[id_prm, id_run])
 
                 frames_glb = np.transpose(frames_glb, (0, 3, 1, 2))  # (T, C, W, H)
-                frames_glb = np.expand_dims(frames_glb, axis=0)      # (N, T, C, W, H)
+                frames_glb = np.expand_dims(frames_glb, axis=0)  # (N, T, C, W, H)
                 writer.add_video("test/video-all", frames_glb, global_step=gen, fps=15)
-            
+
             test_return_to_log = test_scores[1]
             log_steps.append(train_evaluator.total_env_steps)
             log_return.append(test_return_to_log)
-            t.set_description(f"R: " + "{:.3f}".format(test_return_to_log.item()))
+            t.set_description("R: " + "{:.3f}".format(test_return_to_log.item()))
             t.refresh()
-        
+
 
 if __name__ == "__main__":
-    
     ### Environment config
     env_cfg = {}
     env_cfg["obs_type"] = "vector"  # "rgb"
-    env_cfg["discrete_actions"] = True  # True 
+    env_cfg["discrete_actions"] = True  # True
     env_cfg["reward_game_won"] = 100
     env_cfg["reward_defeat_one_opponent"] = 100
     env_cfg["reward_detection"] = 0
@@ -478,16 +491,16 @@ if __name__ == "__main__":
     # alg_cfg5["config_name"] = "config5"
     # alg_cfg5["strategy"]["popsize"] = 1024
 
-
     t_start = time.time()
     run_gigastep_fitness(
-        scenario_name="identical_5_vs_5", 
+        scenario_name="identical_5_vs_5",
         # strategy_name=["DES"],  # ["OpenES", "DES", "CR_FM_NES"],
         alg_cfgs=[
             alg_cfg,
             alg_cfg4,
         ],
         network_type="LSTM",  # "LSTM",
-        env_cfg=env_cfg)
+        env_cfg=env_cfg,
+    )
     t_end = time.time()
-    print("Runtime = " + str(round(t_end-t_start, 3)))
+    print("Runtime = " + str(round(t_end - t_start, 3)))

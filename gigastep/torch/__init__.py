@@ -1,15 +1,13 @@
-from torch.utils.dlpack import from_dlpack, to_dlpack
-import jax.dlpack
-
 import os
+
+import jax.dlpack
+from torch.utils.dlpack import from_dlpack, to_dlpack
 
 if (
     "XLA_PYTHON_CLIENT_PREALLOCATE" not in os.environ
     and "XLA_PYTHON_CLIENT_MEM_FRACTION" not in os.environ
 ):
-    print(
-        "WARNING: XLA_PYTHON_CLIENT_PREALLOCATE not set, this may cause out-of-memory errors!"
-    )
+    print("WARNING: XLA_PYTHON_CLIENT_PREALLOCATE not set, this may cause out-of-memory errors!")
 
 
 def jax2torch(x):

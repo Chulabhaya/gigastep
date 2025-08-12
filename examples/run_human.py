@@ -1,11 +1,9 @@
-import jax
-
 import time
+
+import jax
 import jax.numpy as jnp
 
-from gigastep import GigastepEnv, stack_agents, GigastepViewer, make_scenario
-import cv2
-from PIL import Image
+from gigastep import GigastepViewer, make_scenario
 
 
 def loop_user():
@@ -23,9 +21,7 @@ def loop_user():
         while not ep_done:
             rng, key = jax.random.split(rng, 2)
             a1 = viewer.continuous_action
-            a2 = jax.random.uniform(
-                key, shape=(env.n_agents, 3), minval=-1.0, maxval=1.0
-            )
+            a2 = jax.random.uniform(key, shape=(env.n_agents, 3), minval=-1.0, maxval=1.0)
 
             is_ego = jnp.arange(env.n_agents) == 0
             action = jnp.where(is_ego[:, None], a1, a2)

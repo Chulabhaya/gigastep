@@ -1,13 +1,11 @@
-import jax
-
 import time
-import jax.numpy as jnp
 
-from gigastep import GigastepEnv, stack_agents, GigastepViewer, make_scenario
-import cv2
-from PIL import Image
 import flax.linen as nn
+import jax
+import jax.numpy as jnp
 import orbax.checkpoint
+
+from gigastep import GigastepViewer, make_scenario
 
 
 class MLP(nn.Module):  # create a Flax Module dataclass

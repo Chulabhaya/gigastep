@@ -1,12 +1,12 @@
-import torch
-import os
-from enjoy_policy_discrete import evaluation_jax
-import numpy as np
 import bisect
+import os
 
-class Rating():
-    def __init__(self, device, save_path, env_name, env_cfg,
-                 num_match=5):
+import torch
+from enjoy_policy_discrete import evaluation_jax
+
+
+class Rating:
+    def __init__(self, device, save_path, env_name, env_cfg, num_match=5):
         self.device = device
         self.save_path = save_path
         self.env_name = env_name
@@ -23,54 +23,44 @@ class Rating():
             self.rating = []
             self.path_pool = []
 
-
-
     def update_pool_rating(self):
         pool_size = len(self.rating)
 
         for i in range(pool_size):
             print(f"Rating {i} in length of {pool_size}")
             for j in range(pool_size):
-                if i!=j:
-                    policy_0,_ = torch.load(self.path_pool[i])
-                    policy_1,_ = torch.load(self.path_pool[j])
+                if i != j:
+                    policy_0, _ = torch.load(self.path_pool[i])
+                    policy_1, _ = torch.load(self.path_pool[j])
                     self.rating[i], self.rating[j], _ = self._match(
-                        policy_0,
-                        policy_1,
-                        self.rating[i],
-                        self.rating[j]
+                        policy_0, policy_1, self.rating[i], self.rating[j]
                     )
         print(f"rating list is{self.rating}")
         self._save_pool()
 
-        
-    
     def rate_policy(self, policy):
-
         policy.to(self.device)
         rating_0 = 1200
-        if len(self.rating)==0:
+        if len(self.rating) == 0:
             policy_1 = None
-            rating_0, _, winning_0 = self._match(policy, policy_1,
-                                      rating_0, 0)
+            rating_0, _, winning_0 = self._match(policy, policy_1, rating_0, 0)
         else:
             for i in range(len(self.rating)):
-                policy_1,_ = torch.load(self.path_pool[i])
-                rating_0, _, _= self._match(policy, policy_1,
-                                          rating_0, self.rating[i])
+                policy_1, _ = torch.load(self.path_pool[i])
+                rating_0, _, _ = self._match(policy, policy_1, rating_0, self.rating[i])
 
         rank = bisect.bisect_left(sorted(self.rating), rating_0) + 1
 
-        if len(self.rating)==0:
+        if len(self.rating) == 0:
             if winning_0 == 1:
                 position = len(self.rating)
                 path = f"pool_{position:04}.pt"
                 torch.save([policy, None], f"{self.save_path}{path}")
-                
+
                 self.rating.append(rating_0)
                 self.path_pool.append(self.save_path + path)
                 self._save_pool()
-            else: 
+            else:
                 print(f"rating of agent is {rating_0} it is worse than base")
 
         else:
@@ -79,32 +69,34 @@ class Rating():
                 self.rating.append(rating_0)
                 path = f"pool_{position:04}.pt"
                 torch.save([policy, None], f"{self.save_path}{path}")
-                self.path_pool.append(self.save_path+path)
+                self.path_pool.append(self.save_path + path)
                 self._save_pool()
             else:
-                print(f"rating of agent is {rating_0}" +
-                    f"which is lower than highest{sorted(self.rating)[-1]}" +
-                    f" ranked in {rank}")
+                print(
+                    f"rating of agent is {rating_0}"
+                    + f"which is lower than highest{sorted(self.rating)[-1]}"
+                    + f" ranked in {rank}"
+                )
 
         return rating_0
 
     def _save_pool(self):
-        data = {
-                "rating": self.rating,
-                "path_pool": self.path_pool
-                }
+        data = {"rating": self.rating, "path_pool": self.path_pool}
         torch.save(data, self.save_path + "rating_log.pt")
 
     def _match(self, policy_0, policy_1, rate_0, rate_1):
-        videos, winning_0 = evaluation_jax(self.env_name, obs_type="rgb",
-                                           discrete_actions=True,
-                                           actor_critic=policy_0,
-                                           actor_critic_opponent=policy_1,
-                                           num_of_evaluation=self.num_match,
-                                           device=self.device,
-                                           headless=True,
-                                           env_cfg=self.env_cfg,
-                                           show_num_agents=0)
+        videos, winning_0 = evaluation_jax(
+            self.env_name,
+            obs_type="rgb",
+            discrete_actions=True,
+            actor_critic=policy_0,
+            actor_critic_opponent=policy_1,
+            num_of_evaluation=self.num_match,
+            device=self.device,
+            headless=True,
+            env_cfg=self.env_cfg,
+            show_num_agents=0,
+        )
 
         winning_0 = 1 if winning_0 > 0.5 else 0
 
@@ -116,10 +108,3 @@ class Rating():
         rate_1 = rate_1 + K * (1 - winning_0 - Exp_1)
 
         return rate_0, rate_1, winning_0
-
-
-
-    
-    
-
-

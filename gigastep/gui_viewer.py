@@ -1,11 +1,9 @@
-import math
-import sys
-import time
-
-import jax
-import numpy as np
-import jax.numpy as jnp
 import importlib
+import math
+
+import jax.numpy as jnp
+import numpy as np
+
 from gigastep.joystick_input import JoystickInput
 
 
@@ -20,9 +18,7 @@ def discretize(x, threshold=0.3):
 class GigastepViewer:
     display = None
 
-    def __init__(
-        self, frame_size, show_global_state=True, show_num_agents=0, headless=False
-    ):
+    def __init__(self, frame_size, show_global_state=True, show_num_agents=0, headless=False):
         # only import pygame if the viewer is used
         try:
             self.pygame = importlib.import_module("pygame")
@@ -51,9 +47,7 @@ class GigastepViewer:
             self._num_rows = 1
         else:
             self._num_cols = 6
-            self._num_rows = math.ceil(
-                (show_num_agents + int(show_global_state)) / self._num_cols
-            )
+            self._num_rows = math.ceil((show_num_agents + int(show_global_state)) / self._num_cols)
         frame = (frame_size * self._num_cols, frame_size * self._num_rows)
 
         if GigastepViewer.display is None and self.headless is False:
@@ -82,14 +76,9 @@ class GigastepViewer:
         for event in self.pygame.event.get():
             if event.type == self.pygame.KEYDOWN and event.key == self.pygame.K_ESCAPE:
                 self.should_quit = True
-            elif (
-                event.type == self.pygame.KEYDOWN and event.key == self.pygame.K_RETURN
-            ):
+            elif event.type == self.pygame.KEYDOWN and event.key == self.pygame.K_RETURN:
                 self._should_pause = True
-            elif (
-                event.type == self.pygame.KEYDOWN
-                and event.key == self.pygame.K_BACKSPACE
-            ):
+            elif event.type == self.pygame.KEYDOWN and event.key == self.pygame.K_BACKSPACE:
                 self.should_reset = True
 
         action = np.zeros(3)

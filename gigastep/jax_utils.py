@@ -21,8 +21,7 @@ class Box:
     # Jax function that samples uniformly from the box
     def sample(self, rng):
         return (
-            jax.random.uniform(rng, self.low.shape, self.low.dtype)
-            * (self.high - self.low)
+            jax.random.uniform(rng, self.low.shape, self.low.dtype) * (self.high - self.low)
             + self.low
         )
 

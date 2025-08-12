@@ -1,28 +1,19 @@
-import os
-import time
-from tqdm import tqdm
-from copy import deepcopy
 import argparse
-import numpy as np
-import jax
-import jax.numpy as jnp
-import matplotlib.pyplot as plt
-import optax
-from typing import NamedTuple, Any
-from flax.training.train_state import TrainState
-import orbax.checkpoint
-from flax.training import orbax_utils
-from gigastep import make_scenario
+import os
+from functools import partial
+from typing import NamedTuple, Optional, Tuple, Union
 
 import chex
+import jax
+import jax.numpy as jnp
+import numpy as np
+import orbax.checkpoint
 from flax import struct
-from functools import partial
 from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
-from typing import Optional, Tuple, Union
+from network import ActorCriticMLP
 
-from utils import generate_gif, get_ep_done
-from network import ActorCriticMLP, ActorCriticLSTM
+from gigastep import make_scenario
 
 
 class GigaStepWrapper(GymnaxWrapper):
@@ -46,17 +37,11 @@ class GigaStepWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         key, key_reset = jax.random.split(key)
-        obs_st, state_st, reward, done, episode_done = self._env.step(
-            state, action, key
-        )
+        obs_st, state_st, reward, done, episode_done = self._env.step(state, action, key)
         obs_re, state_re = self.reset(key_reset, params)
-        state = jax.tree_map(
-            lambda x, y: jax.lax.select(episode_done, x, y), state_re, state_st
-        )
+        state = jax.tree_map(lambda x, y: jax.lax.select(episode_done, x, y), state_re, state_st)
         if isinstance(obs_re, tuple):
-            obs = jax.tree_map(
-                lambda x, y: jax.lax.select(episode_done, x, y), obs_re, obs_st
-            )
+            obs = jax.tree_map(lambda x, y: jax.lax.select(episode_done, x, y), obs_re, obs_st)
         else:
             obs = jax.lax.select(episode_done, obs_re, obs_st)
 
@@ -74,13 +59,9 @@ class GigaStepTupleObsWrapper(GigaStepWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         key, key_reset = jax.random.split(key)
-        obs_st, state_st, reward, done, episode_done = self._env.step(
-            state, action, key
-        )
+        obs_st, state_st, reward, done, episode_done = self._env.step(state, action, key)
         obs_re, state_re = self.reset(key_reset, params)
-        state = jax.tree_map(
-            lambda x, y: jax.lax.select(episode_done, x, y), state_re, state_st
-        )
+        state = jax.tree_map(lambda x, y: jax.lax.select(episode_done, x, y), state_re, state_st)
         obs = (
             jax.lax.select(episode_done, obs_re[0], obs_st[0]),
             jax.lax.select(episode_done, obs_re[1], obs_st[1]),
@@ -191,9 +172,7 @@ class LogMultiAgentWrapper(GymnaxWrapper):
         action: Union[int, float],
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
-        obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action, params
-        )
+        obs, env_state, reward, done, info = self._env.step(key, state.env_state, action, params)
         new_episode_return = state.episode_returns + reward
         new_episode_length = state.episode_lengths + 1
         state = LogMultiAgentEnvState(
@@ -222,12 +201,8 @@ class Transition(NamedTuple):
 
 
 def make_not_train(config):
-    config["NUM_UPDATES"] = (
-        config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
-    )
-    config["MINIBATCH_SIZE"] = (
-        config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
-    )
+    config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
+    config["MINIBATCH_SIZE"] = config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
     unwrapped_env = make_scenario(config["ENV_NAME"], **config["ENV_CONFIG"])
     env = GigaStepWrapper(unwrapped_env)
     if config["FRAME_STACK_N"] > 1:
@@ -291,7 +266,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ckpt",
         type=str,
-        default=""
+        default="",
         # default="logdir/all_with_new_rew_ver3/identical_5_vs_5/ckpt/10000000",
     )
     parser.add_argument(
@@ -444,9 +419,7 @@ if __name__ == "__main__":
                 import sys
 
                 sys.exit(0)
-        print(
-            f"Episode done, total reward: {total_reward_0:0.2f} ({len(action_buffer)} ep len)"
-        )
+        print(f"Episode done, total reward: {total_reward_0:0.2f} ({len(action_buffer)} ep len)")
         os.makedirs("human_data", exist_ok=True)
         filename = get_filename("human_data")
         rgb_obs_buffer = np.stack(rgb_obs_buffer, axis=0)
@@ -468,6 +441,4 @@ if __name__ == "__main__":
             filepath = "./logdir/test.gif"
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
             imgs = [Image.fromarray(frame) for frame in frame_list]
-            imgs[0].save(
-                filepath, save_all=True, append_images=imgs[1:], duration=50, loop=0
-            )
+            imgs[0].save(filepath, save_all=True, append_images=imgs[1:], duration=50, loop=0)

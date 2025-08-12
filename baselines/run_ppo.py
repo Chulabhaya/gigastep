@@ -1,13 +1,14 @@
+from typing import Sequence
+
 import distrax
-from gigastep import make_scenario
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from baselines.bline_ppo import make_random_adversary, RolloutManager, Runner
-
 from flax.training.train_state import TrainState
-import flax.linen as nn
-from typing import Sequence
+
+from baselines.bline_ppo import Runner
+from gigastep import make_scenario
 
 
 class MLP(nn.Module):

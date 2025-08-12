@@ -1,27 +1,27 @@
-import os
 import sys
 import time
 
-import cv2
 import jax
+import jax.numpy as jnp
 import numpy as np
 
-from gigastep import GigastepViewer, GigastepEnv, make_scenario, ScenarioBuilder
+from gigastep import GigastepViewer, make_scenario
 from gigastep.evaluator import Evaluator
-import jax.numpy as jnp
 
 SLEEP_TIME = 0.01
 
 import torch
 
 
-def get_action_policy(actor_critic,
-                      obs,
-                      recurrent_hidden_states,
-                      discrete_actions,
-                      n_ego_agent,
-                      device,
-                      vectorize=False):
+def get_action_policy(
+    actor_critic,
+    obs,
+    recurrent_hidden_states,
+    discrete_actions,
+    n_ego_agent,
+    device,
+    vectorize=False,
+):
     obs = torch.tensor(np.asarray(obs), device=device)
 
     if not vectorize:
@@ -32,7 +32,8 @@ def get_action_policy(actor_critic,
     masks = torch.ones(1, 1).to(device)
     with torch.no_grad():
         value, action, _, recurrent_hidden_states = actor_critic.act(
-            obs.float(), recurrent_hidden_states, masks, deterministic=True)
+            obs.float(), recurrent_hidden_states, masks, deterministic=True
+        )
     if not vectorize:
         action = torch.squeeze(action, 0)
 
@@ -43,7 +44,7 @@ def get_action_policy(actor_critic,
     return action, recurrent_hidden_states
 
 
-def loop_env(env, policy = None, device = "cpu", headless = False):
+def loop_env(env, policy=None, device="cpu", headless=False):
     evaluator = Evaluator(env)
     viewer = GigastepViewer(84 * 2, show_num_agents=env.n_agents)
     rng = jax.random.PRNGKey(3)
@@ -57,16 +58,16 @@ def loop_env(env, policy = None, device = "cpu", headless = False):
             while not ep_done:
                 rng, key, key2 = jax.random.split(rng, 3)
                 if policy is None:
-                    action_ego = jnp.zeros(
-                        (env.n_agents, 3)
-                    )  # ego does nothing
+                    action_ego = jnp.zeros((env.n_agents, 3))  # ego does nothing
                 else:
-                    action, recurrent_hidden_states = get_action_policy(policy,
-                                                                 obs,
-                                                                 recurrent_hidden_states,
-                                                                 env.discrete_actions,
-                                                                 env.n_teams[0],
-                                                                 device = torch.device(device))
+                    action, recurrent_hidden_states = get_action_policy(
+                        policy,
+                        obs,
+                        recurrent_hidden_states,
+                        env.discrete_actions,
+                        env.n_teams[0],
+                        device=torch.device(device),
+                    )
 
                 action_opp = opponent.apply(obs, key2)
 
@@ -91,14 +92,13 @@ def loop_env(env, policy = None, device = "cpu", headless = False):
             # if frame_idx > 400:
             #     sys.exit(1)
 
-    return [evaluator.team_a_wins / evaluator.total_games,
-                    evaluator.team_b_wins / evaluator.total_games]
+    return [
+        evaluator.team_a_wins / evaluator.total_games,
+        evaluator.team_b_wins / evaluator.total_games,
+    ]
 
 
-
-
-
-def loop_env_vectorized(env, policy = None, device = "cpu"):
+def loop_env_vectorized(env, policy=None, device="cpu"):
     evaluator = Evaluator(env)
     batch_size = 20
     rng = jax.random.PRNGKey(3)
@@ -111,23 +111,25 @@ def loop_env_vectorized(env, policy = None, device = "cpu"):
             key = jax.random.split(key, batch_size)
             obs, state = env.v_reset(key)
             t = 0
-            
-            recurrent_hidden_states = torch.zeros(env.n_teams[0], 
-                                                  policy.recurrent_hidden_state_size,
-                                                  device=device) if policy is not None else None
+
+            recurrent_hidden_states = (
+                torch.zeros(env.n_teams[0], policy.recurrent_hidden_state_size, device=device)
+                if policy is not None
+                else None
+            )
             while not jnp.all(ep_done):
                 rng, key, key2 = jax.random.split(rng, 3)
                 if policy is None:
-                    action_ego = jnp.zeros(
-                        (batch_size, env.n_agents, 3)
-                    )  # ego does nothing
+                    action_ego = jnp.zeros((batch_size, env.n_agents, 3))  # ego does nothing
                 else:
-                    action, recurrent_hidden_states = get_action_policy(policy,
-                                                                 obs,
-                                                                 recurrent_hidden_states,
-                                                                 env.discrete_actions,
-                                                                 env.n_teams[0],
-                                                                 device = torch.device(device))
+                    action, recurrent_hidden_states = get_action_policy(
+                        policy,
+                        obs,
+                        recurrent_hidden_states,
+                        env.discrete_actions,
+                        env.n_teams[0],
+                        device=torch.device(device),
+                    )
 
                 key2 = jax.random.split(key2, batch_size)
                 action_opp = opponent.v_apply(obs, key2)
@@ -147,11 +149,10 @@ def loop_env_vectorized(env, policy = None, device = "cpu"):
             # if frame_idx > 400:
             #     sys.exit(1)
 
-
-    return [evaluator.team_a_wins/evaluator.total_games,
-                    evaluator.team_b_wins/evaluator.total_games]
-            
-
+    return [
+        evaluator.team_a_wins / evaluator.total_games,
+        evaluator.team_b_wins / evaluator.total_games,
+    ]
 
 
 if __name__ == "__main__":

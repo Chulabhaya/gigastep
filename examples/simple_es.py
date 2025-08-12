@@ -1,19 +1,17 @@
 import sys
 import time
 
-import PIL.Image
-import numpy as np
-import pyhopper
 import jax
 import jax.numpy as jnp
-
-from gigastep import make_scenario, GigastepViewer
-from gigastep.evaluator import Evaluator
-import seaborn as sns
 import matplotlib.pyplot as plt
+import numpy as np
+import pyhopper
+import seaborn as sns
+
+from gigastep import GigastepViewer, make_scenario
+from gigastep.evaluator import Evaluator
 
 SLEEP_TIME = 0.01
-from PIL import Image
 
 
 def circle_vs_straight(env):
@@ -169,9 +167,7 @@ def run_n_steps2(params, env):
         return carry, []
 
     # Scan over episode step loop
-    carry_out, scan_out = jax.lax.scan(
-        policy_step, [states, obs, rng, reward], [], length=n_steps
-    )
+    carry_out, scan_out = jax.lax.scan(policy_step, [states, obs, rng, reward], [], length=n_steps)
     # print("total agg", carry_out[-1].sum())
     reward = carry_out[-1] * (env.teams[None, :] == 0)
     reward = reward.sum(axis=1).mean()
@@ -232,15 +228,11 @@ if __name__ == "__main__":
         b2=pyhopper.float(shape=(env.action_space.shape[0],)),
     )
     best_params = search.run(run_n_steps2, "maximize", "220min", kwargs={"env": env})
-    print(f"Ran a total of {search.history.steps[-1]*128*2*200/10e6:0.1f}M steps.")
+    print(f"Ran a total of {search.history.steps[-1] * 128 * 2 * 200 / 10e6:0.1f}M steps.")
     sns.set()
     fig, ax = plt.subplots(figsize=(5, 5))
-    ax.plot(
-        search.history.steps, search.history.best_fs, color="red", label="Best so far"
-    )
-    ax.scatter(
-        x=search.history.steps, y=search.history.fs, color="blue", label="Evaluated"
-    )
+    ax.plot(search.history.steps, search.history.best_fs, color="red", label="Best so far")
+    ax.scatter(x=search.history.steps, y=search.history.fs, color="blue", label="Evaluated")
     ax.set_xlabel("Step")
     ax.set_ylabel("Objective value")
     fig.legend(loc="upper left")

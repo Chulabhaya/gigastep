@@ -1,11 +1,10 @@
-import jax
-
 import time
-import jax.numpy as jnp
 
-from gigastep import GigastepEnv, stack_agents, GigastepViewer
-import cv2
+import jax
+import jax.numpy as jnp
 from PIL import Image
+
+from gigastep import GigastepEnv, GigastepViewer, stack_agents
 
 
 def loop_user():

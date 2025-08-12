@@ -1,17 +1,18 @@
-from flax import linen as nn
-import jax
+from typing import Optional, Tuple
+
 import chex
-from typing import Tuple, Optional
-from evosax.networks.shared import (
-    identity_out,
-    tanh_out,
-    categorical_out,
-    gaussian_out,
-    default_bias_init,
-    kernel_init_fn,
-)
-from learning.evosax.networks.shared import tanh_gaussian_out
+import jax
 from evosax.networks.cnn import CNN
+from evosax.networks.shared import (
+    categorical_out,
+    default_bias_init,
+    gaussian_out,
+    identity_out,
+    kernel_init_fn,
+    tanh_out,
+)
+from flax import linen as nn
+from learning.evosax.networks.shared import tanh_gaussian_out
 
 
 class LSTM_CNN(nn.Module):
@@ -64,7 +65,6 @@ class LSTM_CNN(nn.Module):
         carry: chex.ArrayTree,
         rng: Optional[chex.PRNGKey] = None,
     ) -> Tuple[Tuple[chex.ArrayTree, chex.ArrayTree], chex.Array]:
-
         rng_cnn, rng_lstm = jax.random.split(rng, 2)
 
         # Encode observation
@@ -81,13 +81,9 @@ class LSTM_CNN(nn.Module):
             x = tanh_out(x, self.num_output_units_lstm, self.kernel_init_type_lstm)
         # Categorical and gaussian output heads require rng for sampling
         elif self.output_activation_lstm == "categorical":
-            x = categorical_out(
-                rng_lstm, x, self.num_output_units_lstm, self.kernel_init_type_lstm
-            )
+            x = categorical_out(rng_lstm, x, self.num_output_units_lstm, self.kernel_init_type_lstm)
         elif self.output_activation_lstm == "gaussian":
-            x = gaussian_out(
-                rng_lstm, x, self.num_output_units_lstm, self.kernel_init_type_lstm
-            )
+            x = gaussian_out(rng_lstm, x, self.num_output_units_lstm, self.kernel_init_type_lstm)
         elif self.output_activation_lstm == "tanh_gaussian":
             x = tanh_gaussian_out(
                 rng_lstm, x, self.num_output_units_lstm, self.kernel_init_type_lstm

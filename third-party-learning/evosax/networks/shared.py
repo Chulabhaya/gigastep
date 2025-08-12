@@ -1,7 +1,7 @@
+import chex
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
-import chex
 from jax.nn.initializers import (
     glorot_normal,
     glorot_uniform,
@@ -14,7 +14,6 @@ from jax.nn.initializers import (
     xavier_normal,
     xavier_uniform,
 )
-
 
 kernel_init_fn = {
     "glorot_normal": glorot_normal,
@@ -54,7 +53,7 @@ def tanh_gaussian_out(
     x_std = jnp.exp(0.5 * x_log_var)
     noise = x_std * jax.random.normal(rng, (num_output_units,))
     info = {}
-    info['act_mean'] = x_mean
-    info['act_stdv'] = noise
+    info["act_mean"] = x_mean
+    info["act_stdv"] = noise
     # return 1.1*nn.tanh(x_mean) + noise, info
     return x_mean + noise, info

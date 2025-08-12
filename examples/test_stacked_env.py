@@ -1,14 +1,12 @@
-import time
-
 import jax
 import jax.numpy as jnp
-from gigastep import GigastepEnv, EnvFrameStack
 
+from gigastep import EnvFrameStack, GigastepEnv
 
 if __name__ == "__main__":
     n_agents = 20
     env = GigastepEnv(n_agents=n_agents)
-    env_stack = EnvFrameStack(env, nstack = 3)
+    env_stack = EnvFrameStack(env, nstack=3)
 
     batch_size = 5
     rng = jax.random.PRNGKey(1)
@@ -20,9 +18,7 @@ if __name__ == "__main__":
         t += 1
         rng, key = jax.random.split(rng, 2)
 
-        actions = jax.random.uniform(
-            key, shape=(batch_size, n_agents, 3), minval=-1, maxval=1
-        )
+        actions = jax.random.uniform(key, shape=(batch_size, n_agents, 3), minval=-1, maxval=1)
         rng, key = jax.random.split(rng, 2)
         key = jax.random.split(key, batch_size)
 

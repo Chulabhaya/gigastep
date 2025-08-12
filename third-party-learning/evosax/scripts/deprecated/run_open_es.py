@@ -4,18 +4,19 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["TF_CUDNN_DETERMINISTIC"] = "1"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-import jax
-import jax.numpy as jnp
-from evosax import OpenES, ParameterReshaper
-from learning.evosax.networks import NetworkMapperGiga
-from learning.evosax.problems.gigastep import GigastepFitness
-from evosax.utils import ESLog
-from evosax.utils import FitnessShaper  # NOTE: will move to evosax.core
-import tqdm
-
 import time
 from datetime import datetime
+
+import jax
+import jax.numpy as jnp
 import numpy as np
+import tqdm
+from evosax import OpenES, ParameterReshaper
+from evosax.utils import (
+    ESLog,  # NOTE: will move to evosax.core
+)
+from learning.evosax.networks import NetworkMapperGiga
+from learning.evosax.problems.gigastep import GigastepFitness
 
 
 def network_setup(train_evaluator, test_evaluator, rng, net_type="CNN"):
@@ -84,9 +85,7 @@ def network_setup(train_evaluator, test_evaluator, rng, net_type="CNN"):
     return net_params, train_evaluator, test_evaluator
 
 
-def run_gigastep_fitness(
-    scenario_name: str = "identical_5_vs_5", network_type: str = "LSTM_CNN"
-):
+def run_gigastep_fitness(scenario_name: str = "identical_5_vs_5", network_type: str = "LSTM_CNN"):
     num_generations = 1000
     evaluate_every_gen = 10
     log_tensorboard = True
@@ -94,16 +93,12 @@ def run_gigastep_fitness(
     if log_tensorboard:
         from torch.utils.tensorboard import SummaryWriter
 
-        logdir = "./logdir/evosax/open_es/" + datetime.now().strftime(
-            "%y_%m_%d_%H_%M_%S"
-        )
+        logdir = "./logdir/evosax/open_es/" + datetime.now().strftime("%y_%m_%d_%H_%M_%S")
         writer = SummaryWriter(log_dir=logdir, flush_secs=10)
 
     rng = jax.random.PRNGKey(0)
 
-    train_evaluator = GigastepFitness(
-        scenario_name, num_env_steps=500, num_rollouts=20, test=False
-    )
+    train_evaluator = GigastepFitness(scenario_name, num_env_steps=500, num_rollouts=20, test=False)
     test_evaluator = GigastepFitness(
         scenario_name, num_env_steps=500, num_rollouts=20, test=True, n_devices=1
     )
@@ -117,9 +112,7 @@ def run_gigastep_fitness(
 
     # fitness_shaper = FitnessShaper(maximize=True)
 
-    strategy = OpenES(
-        popsize=30, num_dims=train_param_reshaper.total_params, maximize=True
-    )
+    strategy = OpenES(popsize=30, num_dims=train_param_reshaper.total_params, maximize=True)
     es_state = strategy.initialize(rng)
 
     es_logging = ESLog(
@@ -156,7 +149,7 @@ def run_gigastep_fitness(
 
         if log_tensorboard:
             for key, value in es_log.items():
-                if not "params" in key:
+                if "params" not in key:
                     val = value[gen - 1] if len(value.shape) else value
                     writer.add_scalar("train/" + key, np.array(val), gen)
 
@@ -201,7 +194,7 @@ def run_gigastep_fitness(
             test_return_to_log = test_scores[1]
             log_steps.append(train_evaluator.total_env_steps)
             log_return.append(test_return_to_log)
-            t.set_description(f"R: " + "{:.3f}".format(test_return_to_log.item()))
+            t.set_description("R: " + "{:.3f}".format(test_return_to_log.item()))
             t.refresh()
 
 

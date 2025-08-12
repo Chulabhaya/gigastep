@@ -7,22 +7,31 @@ def _flatten_helper(T, N, _tensor):
 
 
 class RolloutStorage(object):
-    def __init__(self, num_steps, num_processes, obs_shape, action_space,
-                 recurrent_hidden_state_size,n_agent = None):
+    def __init__(
+        self,
+        num_steps,
+        num_processes,
+        obs_shape,
+        action_space,
+        recurrent_hidden_state_size,
+        n_agent=None,
+    ):
         if n_agent is not None:
             obs_shape = (n_agent,) + obs_shape
         self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
         if n_agent is not None:
             self.recurrent_hidden_states = torch.zeros(
-                num_steps+1, num_processes, n_agent, recurrent_hidden_state_size)
+                num_steps + 1, num_processes, n_agent, recurrent_hidden_state_size
+            )
         else:
             self.recurrent_hidden_states = torch.zeros(
-                num_steps + 1, num_processes, recurrent_hidden_state_size)
+                num_steps + 1, num_processes, recurrent_hidden_state_size
+            )
         self.rewards = torch.zeros(num_steps, num_processes, 1)
         self.value_preds = torch.zeros(num_steps + 1, num_processes, 1)
         self.returns = torch.zeros(num_steps + 1, num_processes, 1)
         self.action_log_probs = torch.zeros(num_steps, num_processes, 1)
-        if action_space.__class__.__name__ == 'Discrete':
+        if action_space.__class__.__name__ == "Discrete":
             action_shape = 1
             if n_agent is not None:
                 action_shape = (n_agent, action_shape)
@@ -34,11 +43,11 @@ class RolloutStorage(object):
             else:
                 action_shape = action_space.shape[0]
         self.actions = torch.zeros(num_steps, num_processes, *action_shape)
-        if action_space.__class__.__name__ == 'Discrete':
+        if action_space.__class__.__name__ == "Discrete":
             self.actions = self.actions.long()
         self.masks = torch.ones(num_steps + 1, num_processes, 1)
         if n_agent is not None:
-            self.masks_agent = torch.ones(num_steps + 1, num_processes,n_agent, 1)
+            self.masks_agent = torch.ones(num_steps + 1, num_processes, n_agent, 1)
         else:
             self.masks_agent = None
 
@@ -62,16 +71,25 @@ class RolloutStorage(object):
         self.masks = self.masks.to(device)
         self.bad_masks = self.bad_masks.to(device)
         self.skills = self.skills.to(device)
-        
+
         if self.masks_agent is not None:
             self.masks_agent = self.masks_agent.to(device)
-        
 
-    def insert(self, obs, recurrent_hidden_states, actions, action_log_probs,
-               value_preds, rewards, masks, bad_masks, skills = None, masks_agent = None):
+    def insert(
+        self,
+        obs,
+        recurrent_hidden_states,
+        actions,
+        action_log_probs,
+        value_preds,
+        rewards,
+        masks,
+        bad_masks,
+        skills=None,
+        masks_agent=None,
+    ):
         self.obs[self.step + 1].copy_(obs)
-        self.recurrent_hidden_states[self.step +
-                                     1].copy_(recurrent_hidden_states)
+        self.recurrent_hidden_states[self.step + 1].copy_(recurrent_hidden_states)
         self.actions[self.step].copy_(actions)
         self.action_log_probs[self.step].copy_(action_log_probs)
         self.value_preds[self.step].copy_(value_preds)
@@ -81,7 +99,7 @@ class RolloutStorage(object):
             self.masks_agent[self.step + 1].copy_(masks_agent)
         self.bad_masks[self.step + 1].copy_(bad_masks)
         if skills is not None:
-            self.skills[self.step+1].copy_(skills)
+            self.skills[self.step + 1].copy_(skills)
 
         self.step = (self.step + 1) % self.num_steps
 
@@ -93,51 +111,48 @@ class RolloutStorage(object):
         self.bad_masks[0].copy_(self.bad_masks[-1])
         self.skills[0].copy_(self.skills[-1])
 
-    def compute_returns(self,
-                        next_value,
-                        use_gae,
-                        gamma,
-                        gae_lambda,
-                        use_proper_time_limits=True):
+    def compute_returns(self, next_value, use_gae, gamma, gae_lambda, use_proper_time_limits=True):
         if use_proper_time_limits:
             if use_gae:
                 self.value_preds[-1] = next_value
                 gae = 0
                 for step in reversed(range(self.rewards.size(0))):
-                    delta = self.rewards[step] + gamma * self.value_preds[
-                        step + 1] * self.masks[step +
-                                               1] - self.value_preds[step]
-                    gae = delta + gamma * gae_lambda * self.masks[step +
-                                                                  1] * gae
+                    delta = (
+                        self.rewards[step]
+                        + gamma * self.value_preds[step + 1] * self.masks[step + 1]
+                        - self.value_preds[step]
+                    )
+                    gae = delta + gamma * gae_lambda * self.masks[step + 1] * gae
                     gae = gae * self.bad_masks[step + 1]
                     self.returns[step] = gae + self.value_preds[step]
             else:
                 self.returns[-1] = next_value
                 for step in reversed(range(self.rewards.size(0))):
-                    self.returns[step] = (self.returns[step + 1] * \
-                        gamma * self.masks[step + 1] + self.rewards[step]) * self.bad_masks[step + 1] \
-                        + (1 - self.bad_masks[step + 1]) * self.value_preds[step]
+                    self.returns[step] = (
+                        self.returns[step + 1] * gamma * self.masks[step + 1] + self.rewards[step]
+                    ) * self.bad_masks[step + 1] + (
+                        1 - self.bad_masks[step + 1]
+                    ) * self.value_preds[step]
         else:
             if use_gae:
                 self.value_preds[-1] = next_value
                 gae = 0
                 for step in reversed(range(self.rewards.size(0))):
-                    delta = self.rewards[step] + gamma * self.value_preds[
-                        step + 1] * self.masks[step +
-                                               1] - self.value_preds[step]
-                    gae = delta + gamma * gae_lambda * self.masks[step +
-                                                                  1] * gae
+                    delta = (
+                        self.rewards[step]
+                        + gamma * self.value_preds[step + 1] * self.masks[step + 1]
+                        - self.value_preds[step]
+                    )
+                    gae = delta + gamma * gae_lambda * self.masks[step + 1] * gae
                     self.returns[step] = gae + self.value_preds[step]
             else:
                 self.returns[-1] = next_value
                 for step in reversed(range(self.rewards.size(0))):
-                    self.returns[step] = self.returns[step + 1] * \
-                        gamma * self.masks[step + 1] + self.rewards[step]
+                    self.returns[step] = (
+                        self.returns[step + 1] * gamma * self.masks[step + 1] + self.rewards[step]
+                    )
 
-    def feed_forward_generator(self,
-                               advantages,
-                               num_mini_batch=None,
-                               mini_batch_size=None):
+    def feed_forward_generator(self, advantages, num_mini_batch=None, mini_batch_size=None):
         num_steps, num_processes = self.rewards.size()[0:2]
         batch_size = num_processes * num_steps
 
@@ -146,51 +161,68 @@ class RolloutStorage(object):
                 "PPO requires the number of processes ({}) "
                 "* number of steps ({}) = {} "
                 "to be greater than or equal to the number of PPO mini batches ({})."
-                "".format(num_processes, num_steps, num_processes * num_steps,
-                          num_mini_batch))
+                "".format(num_processes, num_steps, num_processes * num_steps, num_mini_batch)
+            )
             mini_batch_size = batch_size // num_mini_batch
         sampler = BatchSampler(
-            SubsetRandomSampler(range(batch_size)),
-            mini_batch_size,
-            drop_last=True)
+            SubsetRandomSampler(range(batch_size)), mini_batch_size, drop_last=True
+        )
         for indices in sampler:
             obs_batch = self.obs[:-1].view(-1, *self.obs.size()[2:])[indices]
             recurrent_hidden_states_batch = self.recurrent_hidden_states[:-1].view(
-                -1, self.recurrent_hidden_states.size(-1))[indices]
+                -1, self.recurrent_hidden_states.size(-1)
+            )[indices]
             if len(self.actions.size()) == 4:
-                actions_batch = self.actions.view(-1,
-                                                  self.actions.size(-2),
-                                                  self.actions.size(-1))[indices]
+                actions_batch = self.actions.view(-1, self.actions.size(-2), self.actions.size(-1))[
+                    indices
+                ]
             else:
-                actions_batch = self.actions.view(-1,
-                                              self.actions.size(-1))[indices]
+                actions_batch = self.actions.view(-1, self.actions.size(-1))[indices]
             value_preds_batch = self.value_preds[:-1].view(-1, 1)[indices]
             return_batch = self.returns[:-1].view(-1, 1)[indices]
             masks_batch = self.masks[:-1].view(-1, 1)[indices]
             if self.masks_agent is not None:
-                masks_agent_batch =  self.masks_agent[:-1].view(-1,self.masks_agent.shape[-2],1)[indices]
+                masks_agent_batch = self.masks_agent[:-1].view(-1, self.masks_agent.shape[-2], 1)[
+                    indices
+                ]
             else:
                 masks_agent_batch = None
-            old_action_log_probs_batch = self.action_log_probs.view(-1,
-                                                                    1)[indices]
+            old_action_log_probs_batch = self.action_log_probs.view(-1, 1)[indices]
             if advantages is None:
                 adv_targ = None
             else:
                 adv_targ = advantages.view(-1, 1)[indices]
             if masks_agent_batch is not None:
-                yield obs_batch, recurrent_hidden_states_batch, actions_batch, \
-                    value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ, \
-                    masks_agent_batch
+                yield (
+                    obs_batch,
+                    recurrent_hidden_states_batch,
+                    actions_batch,
+                    value_preds_batch,
+                    return_batch,
+                    masks_batch,
+                    old_action_log_probs_batch,
+                    adv_targ,
+                    masks_agent_batch,
+                )
             else:
-                yield obs_batch, recurrent_hidden_states_batch, actions_batch, \
-                    value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ
+                yield (
+                    obs_batch,
+                    recurrent_hidden_states_batch,
+                    actions_batch,
+                    value_preds_batch,
+                    return_batch,
+                    masks_batch,
+                    old_action_log_probs_batch,
+                    adv_targ,
+                )
 
     def recurrent_generator(self, advantages, num_mini_batch):
         num_processes = self.rewards.size(1)
         assert num_processes >= num_mini_batch, (
             "PPO requires the number of processes ({}) "
             "to be greater than or equal to the number of "
-            "PPO mini batches ({}).".format(num_processes, num_mini_batch))
+            "PPO mini batches ({}).".format(num_processes, num_mini_batch)
+        )
         num_envs_per_batch = num_processes // num_mini_batch
         perm = torch.randperm(num_processes)
         for start_ind in range(0, num_processes, num_envs_per_batch):
@@ -208,14 +240,14 @@ class RolloutStorage(object):
                 ind = perm[start_ind + offset]
                 obs_batch.append(self.obs[:-1, ind])
                 recurrent_hidden_states_batch.append(
-                    self.recurrent_hidden_states[:-1, ind]) # from 0:1 change here
+                    self.recurrent_hidden_states[:-1, ind]
+                )  # from 0:1 change here
                 actions_batch.append(self.actions[:, ind])
                 value_preds_batch.append(self.value_preds[:-1, ind])
                 return_batch.append(self.returns[:-1, ind])
                 masks_batch.append(self.masks[:-1, ind])
-                masks_agent_batch.append(self.masks_agent[:-1, ind]) 
-                old_action_log_probs_batch.append(
-                    self.action_log_probs[:, ind])
+                masks_agent_batch.append(self.masks_agent[:-1, ind])
+                old_action_log_probs_batch.append(self.action_log_probs[:, ind])
                 adv_targ.append(advantages[:, ind])
 
             T, N = self.num_steps, num_envs_per_batch
@@ -225,13 +257,13 @@ class RolloutStorage(object):
             value_preds_batch = torch.stack(value_preds_batch, 1)
             return_batch = torch.stack(return_batch, 1)
             masks_batch = torch.stack(masks_batch, 1)
-            masks_agent_batch = torch.stack(masks_agent_batch,1)
-            old_action_log_probs_batch = torch.stack(
-                old_action_log_probs_batch, 1)
+            masks_agent_batch = torch.stack(masks_agent_batch, 1)
+            old_action_log_probs_batch = torch.stack(old_action_log_probs_batch, 1)
             adv_targ = torch.stack(adv_targ, 1)
             # States is just a (N, -1) tensor
-            recurrent_hidden_states_batch = torch.stack(
-                recurrent_hidden_states_batch, 1).view(T*N, *recurrent_hidden_states_batch[0].shape[1:])
+            recurrent_hidden_states_batch = torch.stack(recurrent_hidden_states_batch, 1).view(
+                T * N, *recurrent_hidden_states_batch[0].shape[1:]
+            )
             # form -1 to *recurrent_hidden_states_batch[0].shape[1:].  change here
             # Flatten the (T, N, ...) tensors to (T * N, ...)
             obs_batch = _flatten_helper(T, N, obs_batch)
@@ -239,15 +271,30 @@ class RolloutStorage(object):
             value_preds_batch = _flatten_helper(T, N, value_preds_batch)
             return_batch = _flatten_helper(T, N, return_batch)
             masks_batch = _flatten_helper(T, N, masks_batch)
-            masks_agent_batch = _flatten_helper(T,N, masks_agent_batch)
-            old_action_log_probs_batch = _flatten_helper(T, N, \
-                    old_action_log_probs_batch)
+            masks_agent_batch = _flatten_helper(T, N, masks_agent_batch)
+            old_action_log_probs_batch = _flatten_helper(T, N, old_action_log_probs_batch)
             adv_targ = _flatten_helper(T, N, adv_targ)
-            
+
             if self.masks_agent is not None:
-                yield obs_batch, recurrent_hidden_states_batch, actions_batch, \
-                    value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ, \
-                    masks_agent_batch
+                yield (
+                    obs_batch,
+                    recurrent_hidden_states_batch,
+                    actions_batch,
+                    value_preds_batch,
+                    return_batch,
+                    masks_batch,
+                    old_action_log_probs_batch,
+                    adv_targ,
+                    masks_agent_batch,
+                )
             else:
-                yield obs_batch, recurrent_hidden_states_batch, actions_batch, \
-                    value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ
+                yield (
+                    obs_batch,
+                    recurrent_hidden_states_batch,
+                    actions_batch,
+                    value_preds_batch,
+                    return_batch,
+                    masks_batch,
+                    old_action_log_probs_batch,
+                    adv_targ,
+                )

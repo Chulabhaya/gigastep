@@ -1,15 +1,16 @@
-from flax import linen as nn
-import jax
+from typing import Optional, Tuple
+
 import chex
-from typing import Tuple, Optional
+import jax
 from evosax.networks.shared import (
-    identity_out,
-    tanh_out,
     categorical_out,
-    gaussian_out,
     default_bias_init,
+    gaussian_out,
+    identity_out,
     kernel_init_fn,
+    tanh_out,
 )
+from flax import linen as nn
 from learning.evosax.networks.shared import tanh_gaussian_out
 
 
@@ -30,9 +31,8 @@ class LSTM(nn.Module):
         carry: chex.ArrayTree,
         rng: Optional[chex.PRNGKey] = None,
     ) -> Tuple[Tuple[chex.ArrayTree, chex.ArrayTree], chex.Array]:
-
         info = {}
-        
+
         # Propagate latent state
         lstm_state, x = nn.LSTMCell(
             bias_init=default_bias_init(),
@@ -44,17 +44,11 @@ class LSTM(nn.Module):
             x = tanh_out(x, self.num_output_units, self.kernel_init_type)
         # Categorical and gaussian output heads require rng for sampling
         elif self.output_activation == "categorical":
-            x = categorical_out(
-                rng, x, self.num_output_units, self.kernel_init_type
-            )
+            x = categorical_out(rng, x, self.num_output_units, self.kernel_init_type)
         elif self.output_activation == "gaussian":
-            x = gaussian_out(
-                rng, x, self.num_output_units, self.kernel_init_type
-            )
+            x = gaussian_out(rng, x, self.num_output_units, self.kernel_init_type)
         elif self.output_activation == "tanh_gaussian":
-            x, info = tanh_gaussian_out(
-                rng, x, self.num_output_units, self.kernel_init_type
-            )
+            x, info = tanh_gaussian_out(rng, x, self.num_output_units, self.kernel_init_type)
         return lstm_state, x, info
 
     def initialize_carry(self, batch_dims=()) -> Tuple[chex.ArrayTree, chex.ArrayTree]:

@@ -3,22 +3,18 @@ import time
 
 import jax
 import jax.numpy as jnp
+import optax
+from flax import linen as nn
 from flax.training import train_state
 
 from gigastep import GigastepEnv
-import time
-import time
-import optax
-from flax import linen as nn
 
 
 def create_train_state(model, rng, in_dim):
     """Creates initial `TrainState`."""
     params = model.init(rng, jnp.ones(in_dim))
     tx = optax.adam(3e-4)
-    return train_state.TrainState.create(
-        apply_fn=jax.jit(model.apply), params=params, tx=tx
-    )
+    return train_state.TrainState.create(apply_fn=jax.jit(model.apply), params=params, tx=tx)
 
 
 def run_vmapped_no_scan(env, params, batch_size, n_steps, repeats=1):
@@ -30,9 +26,7 @@ def run_vmapped_no_scan(env, params, batch_size, n_steps, repeats=1):
         for i in range(n_steps):
             rng, key = jax.random.split(rng, 2)
             if params is None:
-                actions = jnp.zeros(
-                    (batch_size, env.n_agents, env.action_space.shape[0])
-                )
+                actions = jnp.zeros((batch_size, env.n_agents, env.action_space.shape[0]))
             else:
                 actions = params.apply_fn(params.params, obs)
             key = jax.random.split(key, batch_size)
@@ -217,9 +211,7 @@ def main():
     latex_format = args.format == "latex"
     if latex_format:
         print("\\begin{tabular}{lc|cccc}\\toprule")
-        print(
-            "Device & Batch size & \\multicolumn{2}{c}{Vector} & \\multicolumn{2}{c}{RGB} \\\\"
-        )
+        print("Device & Batch size & \\multicolumn{2}{c}{Vector} & \\multicolumn{2}{c}{RGB} \\\\")
         print("& & steps/s & Time to 100M & steps/s & Time to 100M \\\\\\midrule")
     for batch_size in BATCH_SIZES:
         if latex_format:

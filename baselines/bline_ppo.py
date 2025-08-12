@@ -1,12 +1,13 @@
 import os
+from functools import partial
 from typing import Callable
+
 import jax
 import jax.numpy as jnp
-from functools import partial
-from flax import struct
-from tqdm.auto import tqdm
 import numpy as np
+from flax import struct
 from PIL import Image
+from tqdm.auto import tqdm
 
 
 class AdversaryPolicy(struct.PyTreeNode):
@@ -34,15 +35,15 @@ class AdversaryPolicy(struct.PyTreeNode):
 
 def int_to_str(x):
     if x >= 1e9:
-        return f"{x/1e9:.2g}B"
+        return f"{x / 1e9:.2g}B"
     if x >= 1e7:
-        return f"{x/1e6:.0f}M"
+        return f"{x / 1e6:.0f}M"
     if x >= 1e6:
-        return f"{x/1e6:.1f}M"
+        return f"{x / 1e6:.1f}M"
     if x >= 1e4:
-        return f"{x/1e3:.0f}k"
+        return f"{x / 1e3:.0f}k"
     if x >= 1e3:
-        return f"{x/1e3:.1f}k"
+        return f"{x / 1e3:.1f}k"
     return f"{x}"
 
 
@@ -56,9 +57,7 @@ def compute_gae(rollout_buffer, value_state, gamma=0.99, gae_lambda=0.95):
         gae = delta + gamma * gae_lambda * value * gae
         return (gae, value), (gae, value)
 
-    last_value = value_state.apply_fn(value_state.params, rollout_buffer.obs[-1])[
-        :, :, 0
-    ]
+    last_value = value_state.apply_fn(value_state.params, rollout_buffer.obs[-1])[:, :, 0]
     _, (advantages, values) = jax.lax.scan(
         step_gae,
         (jnp.zeros_like(last_value), last_value),
@@ -87,9 +86,7 @@ def concat_buffers(buffer1, buffer2):
 def minibatchify(buffer, batch_size):
     trim_size = buffer.obs.shape[0] - buffer.obs.shape[0] % batch_size
     buffer = jax.tree_util.tree_map(lambda x: x[:trim_size], buffer)
-    buffer = jax.tree_util.tree_map(
-        lambda x: x.reshape((batch_size, -1) + x.shape[1:]), buffer
-    )
+    buffer = jax.tree_util.tree_map(lambda x: x.reshape((batch_size, -1) + x.shape[1:]), buffer)
     return buffer
 
 
@@ -120,9 +117,7 @@ class RolloutBuffer(struct.PyTreeNode):
         return self.rewards.sum(axis=0).mean()
 
     def make_train_buffer(self, value_state, gamma, gae_lambda):
-        advantages, values, value_targets = compute_gae(
-            self, value_state, gamma, gae_lambda
-        )
+        advantages, values, value_targets = compute_gae(self, value_state, gamma, gae_lambda)
         obs = self.obs[:-1]
         next_obs = self.obs[1:]
 
@@ -193,9 +188,7 @@ def make_circling_adversary(n_agents, all_same_diretion=False):
     def sample_fn(state, obs, key):
         return state
 
-    return AdversaryPolicy(
-        init_fn_same_dir if all_same_diretion else init_fn, sample_fn
-    )
+    return AdversaryPolicy(init_fn_same_dir if all_same_diretion else init_fn, sample_fn)
 
 
 def sample_from_policy(train_state, obs, key):
@@ -223,9 +216,7 @@ class RolloutManager:
             rng, key_action, key_adv, key_step = jax.random.split(rng, 4)
 
             action_pi, logp = sample_from_policy(train_state, obs_ego, key_action)
-            adv_action, adv_state = adv_policy.sample_actions(
-                adv_state, obs_adv, key_adv
-            )
+            adv_action, adv_state = adv_policy.sample_actions(adv_state, obs_adv, key_adv)
 
             action_fused = jnp.concatenate([action_pi, adv_action], axis=-1)
 
@@ -233,9 +224,10 @@ class RolloutManager:
             next_obs, state, rewards, alive, ep_dones = self.env.v_step(
                 state, action_fused, key_step
             )
-            carry, y = [next_obs, state, train_state, adv_state, rng], [
-                [obs, action_pi, logp, rewards, alive, ep_dones]
-            ]
+            carry, y = (
+                [next_obs, state, train_state, adv_state, rng],
+                [[obs, action_pi, logp, rewards, alive, ep_dones]],
+            )
             return carry, y
 
         # Scan over episode step loop
@@ -277,23 +269,17 @@ class RolloutManager:
             rng, key_action, key_adv, key_step = jax.random.split(rng, 4)
 
             action_pi, logp = sample_from_policy(train_state, obs_ego, key_action)
-            adv_action, adv_state = adv_policy.sample_actions(
-                adv_state, obs_adv, key_adv
-            )
+            adv_action, adv_state = adv_policy.sample_actions(adv_state, obs_adv, key_adv)
             action_fused = jnp.concatenate([action_pi, adv_action], axis=-1)
 
             key_step = jax.random.split(key_step, 1)
-            obs, state, rewards, alive, ep_dones = self.env.v_step(
-                state, action_fused, key_step
-            )
+            obs, state, rewards, alive, ep_dones = self.env.v_step(state, action_fused, key_step)
         return frame_list
 
 
 def save_gif(filepath, frame_list):
     frame_list = [Image.fromarray(np.array(frame)) for frame in frame_list]
-    frame_list[0].save(
-        filepath, save_all=True, append_images=frame_list[1:], duration=50, loop=0
-    )
+    frame_list[0].save(filepath, save_all=True, append_images=frame_list[1:], duration=50, loop=0)
 
 
 def train_iter(buffer, policy_state, value_state, key, config):
@@ -412,9 +398,7 @@ class Runner:
         )
         avg_ep_len, avg_ep_reward = [], []
         for i, adversary in enumerate(self.adversary_pool):
-            buffer = self.rollout_manager.generate(
-                self.policy_state, adversary, self.rng_key()
-            )
+            buffer = self.rollout_manager.generate(self.policy_state, adversary, self.rng_key())
             avg_ep_len.append(buffer.average_episode_length())
             avg_ep_reward.append(buffer.average_episode_reward())
 

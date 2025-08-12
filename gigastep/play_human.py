@@ -1,9 +1,10 @@
 import argparse
 import time
 
-from gigastep import make_scenario, GigastepViewer
 import jax
 import jax.numpy as jnp
+
+from gigastep import GigastepViewer, make_scenario
 
 
 def main():
@@ -38,11 +39,9 @@ def main():
                 key_action, shape=(env.n_agents - 1, 3), minval=-1, maxval=1
             )
             action_ai = jnp.zeros((env.n_agents - 1, 3))
-            action = jnp.concatenate(
-                [jnp.expand_dims(action_user, 0), action_ai], axis=0
-            )
+            action = jnp.concatenate([jnp.expand_dims(action_user, 0), action_ai], axis=0)
             obs, state, rewards, dones, ep_done = env.step(state, action, key_step)
-            img = viewer.draw(env, state, obs)
+            _ = viewer.draw(env, state, obs)
             viewer.clock.tick(10)
             total_user_reward += rewards[0]
             num_steps += 1
@@ -61,9 +60,7 @@ def main():
                 viewer.pygame.event.pump()
                 time.sleep(0.12)
         ep_idx += 1
-        print(
-            f"Episode {ep_idx}: Total user reward: {total_user_reward:0.2f} in {num_steps} steps"
-        )
+        print(f"Episode {ep_idx}: Total user reward: {total_user_reward:0.2f} in {num_steps} steps")
 
 
 if __name__ == "__main__":

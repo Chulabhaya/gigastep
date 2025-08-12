@@ -1,29 +1,27 @@
+import argparse
+import copy
 import os
 import time
-import copy
-from tqdm import tqdm
-from copy import deepcopy
-import argparse
-import numpy as np
+from functools import partial
+from typing import NamedTuple, Optional, Tuple, Union
+
+import chex
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import numpy as np
 import optax
-from typing import NamedTuple, Any
-from flax.training.train_state import TrainState
 import orbax.checkpoint
-from flax.training import orbax_utils
-from gigastep import make_scenario
-
-import chex
 from flax import struct
-from functools import partial
+from flax.training import orbax_utils
+from flax.training.train_state import TrainState
 from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
-from typing import Optional, Tuple, Union
-
+from network import ActorCriticMLP
+from tqdm import tqdm
 from utils import generate_gif
-from network import ActorCriticMLP, ActorCriticLSTM
+
+from gigastep import make_scenario
 
 
 class GigaStepWrapper(GymnaxWrapper):
@@ -47,13 +45,9 @@ class GigaStepWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         key, key_reset = jax.random.split(key)
-        obs_st, state_st, reward, done, episode_done = self._env.step(
-            state, action, key
-        )
+        obs_st, state_st, reward, done, episode_done = self._env.step(state, action, key)
         obs_re, state_re = self.reset(key_reset, params)
-        state = jax.tree_map(
-            lambda x, y: jax.lax.select(episode_done, x, y), state_re, state_st
-        )
+        state = jax.tree_map(lambda x, y: jax.lax.select(episode_done, x, y), state_re, state_st)
         obs = jax.lax.select(episode_done, obs_re, obs_st)
 
         return obs, state, reward, done, {}  # replace last argument with empty info
@@ -70,13 +64,9 @@ class GigaStepTupleObsWrapper(GigaStepWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         key, key_reset = jax.random.split(key)
-        obs_st, state_st, reward, done, episode_done = self._env.step(
-            state, action, key
-        )
+        obs_st, state_st, reward, done, episode_done = self._env.step(state, action, key)
         obs_re, state_re = self.reset(key_reset, params)
-        state = jax.tree_map(
-            lambda x, y: jax.lax.select(episode_done, x, y), state_re, state_st
-        )
+        state = jax.tree_map(lambda x, y: jax.lax.select(episode_done, x, y), state_re, state_st)
         obs = (
             jax.lax.select(episode_done, obs_re[0], obs_st[0]),
             jax.lax.select(episode_done, obs_re[1], obs_st[1]),
@@ -187,9 +177,7 @@ class LogMultiAgentWrapper(GymnaxWrapper):
         action: Union[int, float],
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
-        obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action, params
-        )
+        obs, env_state, reward, done, info = self._env.step(key, state.env_state, action, params)
         new_episode_return = state.episode_returns + reward
         new_episode_length = state.episode_lengths + 1
         state = LogMultiAgentEnvState(
@@ -218,12 +206,8 @@ class Transition(NamedTuple):
 
 
 def make_train(config):
-    config["NUM_UPDATES"] = (
-        config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
-    )
-    config["MINIBATCH_SIZE"] = (
-        config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
-    )
+    config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
+    config["MINIBATCH_SIZE"] = config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
     unwrapped_env = make_scenario(config["ENV_NAME"], **config["ENV_CONFIG"])
     env = GigaStepWrapper(unwrapped_env)
     if config["FRAME_STACK_N"] > 1:
@@ -265,23 +249,17 @@ def make_train(config):
                 init_x = jnp.zeros(
                     (unwrapped_env.n_agents,)
                     + unwrapped_env.observation_space.shape[:-1]
-                    + (
-                        unwrapped_env.observation_space.shape[-1]
-                        * config["FRAME_STACK_N"],
-                    )
+                    + (unwrapped_env.observation_space.shape[-1] * config["FRAME_STACK_N"],)
                 )
             else:
-                if (config["ENV_CONFIG"]["obs_type"] == "rgb") and not config[
-                    "USE_CNN"
-                ]:  # HACK
+                if (config["ENV_CONFIG"]["obs_type"] == "rgb") and not config["USE_CNN"]:  # HACK
                     init_x = jnp.zeros(
                         (unwrapped_env.n_agents,)
                         + (np.prod(unwrapped_env.observation_space.shape),)
                     )
                 else:
                     init_x = jnp.zeros(
-                        (unwrapped_env.n_agents,)
-                        + unwrapped_env.observation_space.shape
+                        (unwrapped_env.n_agents,) + unwrapped_env.observation_space.shape
                     )
             network_params = network.init(_rng, init_x)
             if config["ANNEAL_LR"]:
@@ -331,16 +309,14 @@ def make_train(config):
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, config["NUM_ENVS"])
                 # env_state, obsv, reward, done, ep_done = env.v_step(env_state, action, rng_step)
-                obsv, env_state, reward, done, info = jax.vmap(
-                    env.step, in_axes=(0, 0, 0, None)
-                )(rng_step, env_state, action, None)
+                obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+                    rng_step, env_state, action, None
+                )
                 if config["NETWORK_TYPE"] == "lstm":
                     import ipdb
 
                     ipdb.set_trace()  # TODO: reset rnn state
-                transition = Transition(
-                    done, action, value, reward, log_prob, last_obs, info
-                )
+                transition = Transition(done, action, value, reward, log_prob, last_obs, info)
                 runner_state = (train_state, env_state, obsv, net_state, rng)
                 return runner_state, transition
 
@@ -361,10 +337,7 @@ def make_train(config):
                         transition.reward,
                     )
                     delta = reward + config["GAMMA"] * next_value * (1 - done) - value
-                    gae = (
-                        delta
-                        + config["GAMMA"] * config["GAE_LAMBDA"] * (1 - done) * gae
-                    )
+                    gae = delta + config["GAMMA"] * config["GAE_LAMBDA"] * (1 - done) * gae
                     return (gae, value), gae
 
                 _, advantages = jax.lax.scan(
@@ -389,14 +362,12 @@ def make_train(config):
                         log_prob = pi.log_prob(traj_batch.action)
 
                         # CALCULATE VALUE LOSS
-                        value_pred_clipped = traj_batch.value + (
-                            value - traj_batch.value
-                        ).clip(-config["CLIP_EPS"], config["CLIP_EPS"])
+                        value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(
+                            -config["CLIP_EPS"], config["CLIP_EPS"]
+                        )
                         value_losses = jnp.square(value - targets)
                         value_losses_clipped = jnp.square(value_pred_clipped - targets)
-                        value_loss = (
-                            0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
-                        )
+                        value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
 
                         # CALCULATE ACTOR LOSS
                         log_ratio = log_prob - traj_batch.log_prob
@@ -425,18 +396,16 @@ def make_train(config):
                         return total_loss, (value_loss, loss_actor, entropy)
 
                     grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                    total_loss, grads = grad_fn(
-                        train_state.params, traj_batch, advantages, targets
-                    )
+                    total_loss, grads = grad_fn(train_state.params, traj_batch, advantages, targets)
                     train_state = train_state.apply_gradients(grads=grads)
                     return train_state, total_loss
 
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
                 batch_size = config["MINIBATCH_SIZE"] * config["NUM_MINIBATCHES"]
-                assert (
-                    batch_size == config["NUM_STEPS"] * config["NUM_ENVS"]
-                ), "batch size must be equal to number of steps * number of envs"
+                assert batch_size == config["NUM_STEPS"] * config["NUM_ENVS"], (
+                    "batch size must be equal to number of steps * number of envs"
+                )
                 permutation = jax.random.permutation(_rng, batch_size)
                 batch = (traj_batch, advantages, targets)
                 batch = jax.tree_util.tree_map(
@@ -446,14 +415,10 @@ def make_train(config):
                     lambda x: jnp.take(x, permutation, axis=0), batch
                 )
                 minibatches = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(
-                        x, [config["NUM_MINIBATCHES"], -1] + list(x.shape[1:])
-                    ),
+                    lambda x: jnp.reshape(x, [config["NUM_MINIBATCHES"], -1] + list(x.shape[1:])),
                     shuffled_batch,
                 )
-                train_state, total_loss = jax.lax.scan(
-                    _update_minbatch, train_state, minibatches
-                )
+                train_state, total_loss = jax.lax.scan(_update_minbatch, train_state, minibatches)
                 update_state = (train_state, traj_batch, advantages, targets, rng)
                 return update_state, total_loss
 
@@ -470,18 +435,20 @@ def make_train(config):
 
         rng, _rng = jax.random.split(rng)
         runner_state = (train_state, env_state, obsv, net_state, _rng)
-        runner_state, metric = jax.lax.scan(
-            _update_step, runner_state, None, config["NUM_UPDATES"]
-        )
+        runner_state, metric = jax.lax.scan(_update_step, runner_state, None, config["NUM_UPDATES"])
         return {"runner_state": runner_state, "metrics": metric}
 
     return train, (env, unwrapped_env), make_network
 
 
-def overwrite_param_for_self_play(network_params, network_params_bank, set_team1_as_old_copies=False):
+def overwrite_param_for_self_play(
+    network_params, network_params_bank, set_team1_as_old_copies=False
+):
     old_network_params = network_params_bank[np.random.choice(np.arange(len(network_params_bank)))]
     override_params = {}
-    old_copies_team = "team1" if set_team1_as_old_copies else "team2" # default: team2 is from old checkpoint copies
+    old_copies_team = (
+        "team1" if set_team1_as_old_copies else "team2"
+    )  # default: team2 is from old checkpoint copies
     for k, v in network_params.items():
         if k == "params":
             override_params[k] = {}
@@ -512,7 +479,9 @@ if __name__ == "__main__":
             env_name_for_path = args.env_name.split("_")
             team1_num = env_name_for_path[1]
             team2_num = env_name_for_path[-1]
-            env_name_for_path = "_".join([env_name_for_path[0], team2_num, env_name_for_path[2], team1_num])
+            env_name_for_path = "_".join(
+                [env_name_for_path[0], team2_num, env_name_for_path[2], team1_num]
+            )
             BASE_DIR = f"./logdir/{args.base_dirname}_self_play/{env_name_for_path}"
         else:
             BASE_DIR = f"./logdir/{args.base_dirname}_self_play/{args.env_name}"
@@ -573,7 +542,7 @@ if __name__ == "__main__":
             pi, value = network.apply(network_params, obs)
             action = pi.sample(seed=_rng)
             return action
-        
+
     if args.self_play:
         network_params_bank = []
 
@@ -588,7 +557,11 @@ if __name__ == "__main__":
             else:
                 train_state, env_state, obsv, net_state, rng = out["runner_state"]
                 if args.self_play:
-                    override_params = overwrite_param_for_self_play(train_state.params, network_params_bank, args.self_play_set_team1_as_old_copies)
+                    override_params = overwrite_param_for_self_play(
+                        train_state.params,
+                        network_params_bank,
+                        args.self_play_set_team1_as_old_copies,
+                    )
                     train_state = TrainState.create(
                         apply_fn=train_state.apply_fn,
                         params=override_params,
@@ -600,12 +573,10 @@ if __name__ == "__main__":
                 network_params_bank.append(train_state.params)
             toc = time.time()
 
-            ep_ret_i = (
-                out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1).tolist()
-            )
+            ep_ret_i = out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1).tolist()
             ep_ret_list.extend(ep_ret_i)
 
-            pbar.set_description(f"[{i}/{args.all_total_timesteps}] {toc-tic}")
+            pbar.set_description(f"[{i}/{args.all_total_timesteps}] {toc - tic}")
 
             current_ts = i + int(config["TOTAL_TIMESTEPS"])
             if (args.eval_every > 0) and ((i == 0) or (current_ts % args.eval_every == 0)):
@@ -618,9 +589,7 @@ if __name__ == "__main__":
 
                 action_fn = partial(action_fn_base, out["runner_state"][0].params)
                 for ii in range(EVAL_N_EPS):
-                    filepath = os.path.join(
-                        BASE_DIR, "video", f"{current_ts:07d}_{ii:02d}.gif"
-                    )
+                    filepath = os.path.join(BASE_DIR, "video", f"{current_ts:07d}_{ii:02d}.gif")
                     generate_gif(
                         env_tuple,
                         action_fn,

@@ -1,14 +1,15 @@
-from flax import linen as nn
-import chex
 from typing import Optional
+
+import chex
 from evosax.networks.shared import (
-    identity_out,
-    tanh_out,
     categorical_out,
-    gaussian_out,
     default_bias_init,
+    gaussian_out,
+    identity_out,
     kernel_init_fn,
+    tanh_out,
 )
+from flax import linen as nn
 from learning.evosax.networks.shared import tanh_gaussian_out
 
 
@@ -24,9 +25,7 @@ class MLP(nn.Module):
     model_name: str = "MLP"
 
     @nn.compact
-    def __call__(
-        self, x: chex.Array, rng: Optional[chex.PRNGKey] = None
-    ) -> chex.Array:
+    def __call__(self, x: chex.Array, rng: Optional[chex.PRNGKey] = None) -> chex.Array:
         # # Flatten a single 3d image into a plain flat vector
         # if len(x.shape) <= 3:
         #     x = x.reshape(-1)
@@ -56,14 +55,8 @@ class MLP(nn.Module):
             return tanh_out(x, self.num_output_units, self.kernel_init_type)
         # Categorical and gaussian output heads require rng for sampling
         elif self.output_activation == "categorical":
-            return categorical_out(
-                rng, x, self.num_output_units, self.kernel_init_type
-            )
+            return categorical_out(rng, x, self.num_output_units, self.kernel_init_type)
         elif self.output_activation == "gaussian":
-            return gaussian_out(
-                rng, x, self.num_output_units, self.kernel_init_type
-            )
+            return gaussian_out(rng, x, self.num_output_units, self.kernel_init_type)
         elif self.output_activation == "tanh_gaussian":
-             return tanh_gaussian_out(
-                rng, x, self.num_output_units, self.kernel_init_type
-            )
+            return tanh_gaussian_out(rng, x, self.num_output_units, self.kernel_init_type)

@@ -1,15 +1,13 @@
-import time
 import os
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-from gigastep.torch import torch2jax, jax2torch
-
 import jax
 import jax.numpy as jnp
-from gigastep import GigastepEnv, make_scenario
-import time
 import torch
+
+from gigastep import make_scenario
+from gigastep.torch import jax2torch, torch2jax
 
 if __name__ == "__main__":
     env = make_scenario("identical_20_vs_20", obs_type="rgb")

@@ -1,16 +1,14 @@
-import jax
-import jax.numpy as jnp
-import torch
+import bisect
+import os
 import sys
 import time
-import os
-import bisect
 
-
+import jax
+import jax.numpy as jnp
 import numpy as np
+import torch
 
-from gigastep import make_scenario, GigastepViewer
-
+from gigastep import GigastepViewer, make_scenario
 
 SLEEP_TIME = 0.01
 
@@ -21,22 +19,17 @@ class EvaluatiorPolicy:
 
 
 class Torch_Policy(EvaluatiorPolicy):
-    def __init__(self, env, policy, device = "cpu", vectorize = False, switch_side = False):
-
+    def __init__(self, env, policy, device="cpu", vectorize=False, switch_side=False):
         self.actor_critic = policy
         if vectorize:
             self.recurrent_hidden_states = (
-                torch.zeros(
-                    env.n_agents, policy.recurrent_hidden_state_size, device=device
-                )
+                torch.zeros(env.n_agents, policy.recurrent_hidden_state_size, device=device)
                 if policy is not None
                 else None
             )
         else:
             self.recurrent_hidden_states = (
-                torch.zeros(
-                    env.n_agents, policy.recurrent_hidden_state_size, device=device
-                )
+                torch.zeros(env.n_agents, policy.recurrent_hidden_state_size, device=device)
                 if policy is not None
                 else None
             )
@@ -54,10 +47,9 @@ class Torch_Policy(EvaluatiorPolicy):
             obs = torch.unsqueeze(obs, 0)
         obs = torch.moveaxis(obs, -1, 2)
         if self.switch_side:
-            obs = obs[:, self.n_ego_agents:, ::]
+            obs = obs[:, self.n_ego_agents :, ::]
         else:
-            obs = obs[:, :self.n_ego_agents, ::]
-
+            obs = obs[:, : self.n_ego_agents, ::]
 
         obs = obs.float().contiguous()
         masks = torch.ones(1, 1).to(self.device)
@@ -77,41 +69,47 @@ class Torch_Policy(EvaluatiorPolicy):
 
         if self.switch_side:
             if self.vectorize:
-                action = jnp.pad(action, ((0, 0),(self.n_ego_agents,0)), 'constant', constant_values=(0))
+                action = jnp.pad(
+                    action, ((0, 0), (self.n_ego_agents, 0)), "constant", constant_values=(0)
+                )
             else:
-                action = jnp.pad(action, ((self.n_ego_agents,0)), 'constant', constant_values=(0))
+                action = jnp.pad(action, ((self.n_ego_agents, 0)), "constant", constant_values=(0))
         else:
             if self.vectorize:
-                action = jnp.pad(action, ((0, 0),(0,self.n_opp_agents)), 'constant', constant_values=(0))
+                action = jnp.pad(
+                    action, ((0, 0), (0, self.n_opp_agents)), "constant", constant_values=(0)
+                )
             else:
-                action = jnp.pad(action, ((0, self.n_opp_agents)), 'constant', constant_values=(0))
+                action = jnp.pad(action, ((0, self.n_opp_agents)), "constant", constant_values=(0))
 
         return action
 
 
-
-
 class PolicyPoolJax(EvaluatiorPolicy):
-    def __int__(self, env, ActorCriticMLP, ckpt,
-                config = {"ACTIVATION": "relu",
-                          "ENV_CONFIG": {"obs_type": "vector"}
-                          }
-                ):
-
+    def __int__(
+        self,
+        env,
+        ActorCriticMLP,
+        ckpt,
+        config={"ACTIVATION": "relu", "ENV_CONFIG": {"obs_type": "vector"}},
+    ):
         from functools import partial
-        from flax.training import orbax_utils
+
         import orbax.checkpoint
 
         forbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        train_state, _ =  forbax_checkpointer.restore(ckpt)
+        train_state, _ = forbax_checkpointer.restore(ckpt)
 
-        make_network = partial(ActorCriticMLP,
-                               env.action_space.n,
-                               activation=config["ACTIVATION"],
-                               teams=env.teams,
-                               has_cnn=config["ENV_CONFIG"]["obs_type"] == "rgb" and config["USE_CNN"],
-                               obs_shape=env.observation_space.shape)
+        make_network = partial(
+            ActorCriticMLP,
+            env.action_space.n,
+            activation=config["ACTIVATION"],
+            teams=env.teams,
+            has_cnn=config["ENV_CONFIG"]["obs_type"] == "rgb" and config["USE_CNN"],
+            obs_shape=env.observation_space.shape,
+        )
         network = make_network()
+
         def action_fn_base(network_params, obs, rng):
             rng, _rng = jax.random.split(rng)
             pi, value = network.apply(network_params, obs)
@@ -152,15 +150,12 @@ class RandomPolicy(EvaluatiorPolicy):
         return "RandomPolicy"
 
 
-
 class CirclePolicy(EvaluatiorPolicy):
     def __init__(self, env, direction=1):
         self.env = env
         action = jnp.array([direction, 0, 0])
         if self.env.discrete_actions:
-            action = jnp.argmin(
-                jnp.linalg.norm(self.env.action_lut - action[None, :], axis=1)
-            )
+            action = jnp.argmin(jnp.linalg.norm(self.env.action_lut - action[None, :], axis=1))
 
         self.action = action
         self.direction = direction
@@ -194,18 +189,13 @@ class CircleRandomPolicy(EvaluatiorPolicy):
             actions = jnp.where(directions == 1, self.action1, self.action2)
         else:
             directions = (
-                jax.random.randint(
-                    jax.random.PRNGKey(1), shape=(n_agents,), minval=0, maxval=2
-                )
-                - 1
+                jax.random.randint(jax.random.PRNGKey(1), shape=(n_agents,), minval=0, maxval=2) - 1
             )
-            actions = jnp.stack(
-                [directions, jnp.zeros(n_agents), jnp.zeros(n_agents)], axis=1
-            )
+            actions = jnp.stack([directions, jnp.zeros(n_agents), jnp.zeros(n_agents)], axis=1)
         return actions
 
     def __str__(self):
-        return f"CircleRandomPolicy"
+        return "CircleRandomPolicy"
 
 
 class Evaluator:
@@ -239,17 +229,13 @@ class Evaluator:
 
     @property
     def tie_rate(self):
-        return (
-            (self.total_games - self.team_a_wins - self.team_b_wins)
-            * 100
-            / self.total_games
-        )
+        return (self.total_games - self.team_a_wins - self.team_b_wins) * 100 / self.total_games
 
     def __str__(self):
         return (
-            f"Team A {self.team_a_wins}/{self.total_games-self.total_games_tie} ({self.team_a_wins*100/self.total_games:0.1f}%) wins [{self.team_a_reward/self.total_games:0.1f} mean return]"
-            + f", Team B {self.team_b_wins}/{self.total_games} ({self.team_b_wins*100/self.total_games:0.1f}%) wins [{self.team_b_reward/self.total_games:0.1f} mean return]"
-            + f"  Tie {self.total_games_tie}/{self.total_games} ({self.total_games_tie*100/self.total_games:0.1f}%) ties"
+            f"Team A {self.team_a_wins}/{self.total_games - self.total_games_tie} ({self.team_a_wins * 100 / self.total_games:0.1f}%) wins [{self.team_a_reward / self.total_games:0.1f} mean return]"
+            + f", Team B {self.team_b_wins}/{self.total_games} ({self.team_b_wins * 100 / self.total_games:0.1f}%) wins [{self.team_b_reward / self.total_games:0.1f} mean return]"
+            + f"  Tie {self.total_games_tie}/{self.total_games} ({self.total_games_tie * 100 / self.total_games:0.1f}%) ties"
         )
 
     def merge_actions(self, action1, action2):
@@ -318,10 +304,8 @@ class Evaluator:
         self._ep_dones.append(ep_done)
 
 
-
-class Rating():
-    def __init__(self, device, save_path, env_name, env_cfg,
-                 num_match=5):
+class Rating:
+    def __init__(self, device, save_path, env_name, env_cfg, num_match=5):
         self.device = device
         self.save_path = save_path
         self.env_name = env_name
@@ -349,28 +333,22 @@ class Rating():
                     policy_0, _ = torch.load(self.path_pool[i])
                     policy_1, _ = torch.load(self.path_pool[j])
                     self.rating[i], self.rating[j], _ = self._match(
-                        policy_0,
-                        policy_1,
-                        self.rating[i],
-                        self.rating[j]
+                        policy_0, policy_1, self.rating[i], self.rating[j]
                     )
         print("pool updating is done")
         print(f"rating list is {self.rating}")
         self._save_pool()
 
     def rate_policy(self, policy, rating_0=1200, add_policy_to_pool=False):
-
         policy.to(self.device)
         # rating_0 = 1200
         if len(self.rating) == 0:
             policy_1 = None
-            rating_0, _, winning_0 = self._match(policy, policy_1,
-                                                 rating_0, 0)
+            rating_0, _, winning_0 = self._match(policy, policy_1, rating_0, 0)
         else:
             for i in range(len(self.rating)):
                 policy_1, _ = torch.load(self.path_pool[i])
-                rating_0, _, _ = self._match(policy, policy_1,
-                                             rating_0, self.rating[i])
+                rating_0, _, _ = self._match(policy, policy_1, rating_0, self.rating[i])
 
         rank = bisect.bisect_left(sorted(self.rating), rating_0) + 1
 
@@ -396,50 +374,48 @@ class Rating():
                 self.path_pool.append(self.save_path + path)
                 self._save_pool()
             else:
-                print(f"rating of agent is {rating_0}" +
-                      f"which is lower than highest{sorted(self.rating)[-1]}" +
-                      f" ranked in {rank}")
+                print(
+                    f"rating of agent is {rating_0}"
+                    + f"which is lower than highest{sorted(self.rating)[-1]}"
+                    + f" ranked in {rank}"
+                )
 
         return rating_0
 
     def _save_pool(self):
-        data = {
-            "rating": self.rating,
-            "path_pool": self.path_pool
-        }
+        data = {"rating": self.rating, "path_pool": self.path_pool}
         torch.save(data, self.save_path + "rating_log.pt")
 
     def _match(self, policy_0, policy_1, rate_0, rate_1):
         torch_jax_policy = True
         if torch_jax_policy:
             from enjoy_policy_discrete import evaluation_jax
+
             policy_0.to(self.device)
             policy_1.to(self.device)
 
-            videos, winning_0 = evaluation_jax(self.env_name, obs_type="rgb",
-                                           discrete_actions=True,
-                                           actor_critic=policy_0,
-                                           actor_critic_opponent=policy_1,
-                                           num_of_evaluation=self.num_match,
-                                           device=self.device,
-                                           headless=True,
-                                           env_cfg=self.env_cfg,
-                                           show_num_agents=0)
+            videos, winning_0 = evaluation_jax(
+                self.env_name,
+                obs_type="rgb",
+                discrete_actions=True,
+                actor_critic=policy_0,
+                actor_critic_opponent=policy_1,
+                num_of_evaluation=self.num_match,
+                device=self.device,
+                headless=True,
+                env_cfg=self.env_cfg,
+                show_num_agents=0,
+            )
         else:
-            env = make_scenario(self.env_name,
-                            **vars(self.env_cfg)
-                            )
-            winning_0, wining_1,tie_rate = loop_env_vectorized_two_Policy(
-                        env,
-                        policy_ego = None,
-                        policy_opp = None,
-                        device="cpu",
-                        switch_side = False)
+            env = make_scenario(self.env_name, **vars(self.env_cfg))
+            winning_0, wining_1, tie_rate = loop_env_vectorized_two_Policy(
+                env, policy_ego=None, policy_opp=None, device="cpu", switch_side=False
+            )
 
         winning_0 = 1 if winning_0 > 0.5 else 0
 
-        Exp_0 = 1 / (1 + 10 ** ((rate_1 - rate_0)/400))
-        Exp_1 = 1 / (1 + 10 ** ((rate_0 - rate_1)/400))
+        Exp_0 = 1 / (1 + 10 ** ((rate_1 - rate_0) / 400))
+        Exp_1 = 1 / (1 + 10 ** ((rate_0 - rate_1) / 400))
 
         K = 32
         rate_0 = rate_0 + K * (winning_0 - Exp_0)
@@ -448,10 +424,7 @@ class Rating():
         return rate_0, rate_1, winning_0
 
 
-
-
-def loop_env(env, policy=None, device="cpu", headless=False, swith_side = False):
-
+def loop_env(env, policy=None, device="cpu", headless=False, swith_side=False):
     evaluator = Evaluator(env)
     viewer = GigastepViewer(
         frame_size=84 * 2, show_num_agents=0 if env.discrete_actions else env.n_agents
@@ -466,8 +439,9 @@ def loop_env(env, policy=None, device="cpu", headless=False, swith_side = False)
             key, rng = jax.random.split(rng, 2)
             state, obs = env.reset(key)
 
-            ego = Torch_Policy(policy=policy,env=env,device=device,vectorize = False, switch_side = swith_side)
-            
+            ego = Torch_Policy(
+                policy=policy, env=env, device=device, vectorize=False, switch_side=swith_side
+            )
 
             while not ep_done:
                 rng, key, key2 = jax.random.split(rng, 3)
@@ -487,7 +461,7 @@ def loop_env(env, policy=None, device="cpu", headless=False, swith_side = False)
                 obs, state, r, dones, ep_done = env.step(state, action, key)
                 evaluator.update_step(r, dones, ep_done)
                 if not headless:
-                    img = viewer.draw(env, state, obs)
+                    _ = viewer.draw(env, state, obs)
                     # if viewer.should_pause:
                     #     while True:
                     #         img = viewer.draw(env, state, obs)
@@ -501,14 +475,14 @@ def loop_env(env, policy=None, device="cpu", headless=False, swith_side = False)
             print(str(evaluator))
             # if frame_idx > 400:
             #     sys.exit(1)
-    return [evaluator.team_a_wins / evaluator.total_games,
-            evaluator.team_b_wins / evaluator.total_games,
-            evaluator.total_games_tie / evaluator.total_games]
+    return [
+        evaluator.team_a_wins / evaluator.total_games,
+        evaluator.team_b_wins / evaluator.total_games,
+        evaluator.total_games_tie / evaluator.total_games,
+    ]
 
 
-
-
-def loop_env_vectorized(env, policy=None, device="cpu", switch_side = False):
+def loop_env_vectorized(env, policy=None, device="cpu", switch_side=False):
     evaluator = Evaluator(env)
     batch_size = 20
     rng = jax.random.PRNGKey(3)
@@ -527,9 +501,7 @@ def loop_env_vectorized(env, policy=None, device="cpu", switch_side = False):
             while not jnp.all(ep_done):
                 rng, key, key2 = jax.random.split(rng, 3)
                 if policy is None:
-                    action_ego = jnp.zeros(
-                        (batch_size, env.n_agents, 3)
-                    )  # ego does nothing
+                    action_ego = jnp.zeros((batch_size, env.n_agents, 3))  # ego does nothing
                 else:
                     action_ego = ego.apply(obs, key2)
 
@@ -551,13 +523,16 @@ def loop_env_vectorized(env, policy=None, device="cpu", switch_side = False):
             # if frame_idx > 400:
             #     sys.exit(1)
 
-    return [evaluator.team_a_wins / evaluator.total_games,
-            evaluator.team_b_wins / evaluator.total_games,
-            evaluator.total_games_tie / evaluator.total_games]
+    return [
+        evaluator.team_a_wins / evaluator.total_games,
+        evaluator.team_b_wins / evaluator.total_games,
+        evaluator.total_games_tie / evaluator.total_games,
+    ]
 
 
-
-def loop_env_vectorized_two_Policy(env, policy_ego = None, policy_opp = None, device="cpu", switch_side = False):
+def loop_env_vectorized_two_Policy(
+    env, policy_ego=None, policy_opp=None, device="cpu", switch_side=False
+):
     evaluator = Evaluator(env)
     batch_size = 20
     rng = jax.random.PRNGKey(3)
@@ -572,15 +547,13 @@ def loop_env_vectorized_two_Policy(env, policy_ego = None, policy_opp = None, de
 
         # Torch policy
         # ego = Torch_Policy(policy=policy, env=env, device=device, vectorize=True)
-        # Jax based  
+        # Jax based
         ego = policy_ego
 
         while not jnp.all(ep_done):
             rng, key, key2 = jax.random.split(rng, 3)
-            if policy_ego  is None:
-                action_ego = jnp.zeros(
-                    (batch_size, env.n_agents, 3)
-                )  # ego does nothing
+            if policy_ego is None:
+                action_ego = jnp.zeros((batch_size, env.n_agents, 3))  # ego does nothing
             else:
                 action_ego = ego.apply(obs, key2)
 
@@ -602,8 +575,8 @@ def loop_env_vectorized_two_Policy(env, policy_ego = None, policy_opp = None, de
         # if frame_idx > 400:
         #     sys.exit(1)
 
-    return [evaluator.team_a_wins / evaluator.total_games,
-            evaluator.team_b_wins / evaluator.total_games,
-            evaluator.total_games_tie / evaluator.total_games]
-
-
+    return [
+        evaluator.team_a_wins / evaluator.total_games,
+        evaluator.team_b_wins / evaluator.total_games,
+        evaluator.total_games_tie / evaluator.total_games,
+    ]

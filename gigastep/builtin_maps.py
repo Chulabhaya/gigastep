@@ -190,9 +190,7 @@ def get_builtin_maps(maps, limits):
     maps_heading_a = []
     maps_heading_b = []
     for k, v in list_of_maps.items():
-        maps_boxes.append(
-            jnp.pad(v["boxes"], ((0, max_map_size - v["boxes"].shape[0]), (0, 0)))
-        )
+        maps_boxes.append(jnp.pad(v["boxes"], ((0, max_map_size - v["boxes"].shape[0]), (0, 0))))
         maps_start_pos_a.append(v["start_pos_team_a"])
         maps_start_pos_b.append(v["start_pos_team_b"])
         maps_heading_a.append(v["start_heading_team_a"])

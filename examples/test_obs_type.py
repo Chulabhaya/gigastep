@@ -1,5 +1,6 @@
-from gigastep import make_scenario
 import jax
+
+from gigastep import make_scenario
 
 env = make_scenario("identical_20_vs_20", obs_type="vector")
 rng = jax.random.PRNGKey(3)
@@ -10,21 +11,19 @@ obs, state = env.reset(key_reset)
 t = 0
 while not ep_done:
     rng, key_action, key_step = jax.random.split(rng, 3)
-    action = jax.random.uniform(
-        key_action, shape=(env.n_agents, 3), minval=-1, maxval=1
-    )
+    action = jax.random.uniform(key_action, shape=(env.n_agents, 3), minval=-1, maxval=1)
     obs, state, rewards, dones, ep_done = env.step(state, action, key_step)
     if t <= 1:
         print("obs.shape", obs.shape)
         for i in range(20):
             print(f"obs[0]->{i}", obs[0, 6 * i : 6 * i + 6])
 
-        print(f"ego.x={state[0]['x'][0]}," f"ego.y={state[0]['y'][0]}")
+        print(f"ego.x={state[0]['x'][0]},ego.y={state[0]['y'][0]}")
         print("-----------------------------------")
         for i in range(20):
             print(f"obs[0]->{i}", obs[1, 6 * i : 6 * i + 6])
 
-        print(f"ego.x={state[0]['x'][1]}," f"ego.y={state[0]['y'][1]}")
+        print(f"ego.x={state[0]['x'][1]},ego.y={state[0]['y'][1]}")
     t += 1
 
 

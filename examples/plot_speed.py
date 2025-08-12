@@ -1,7 +1,5 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import seaborn as sns
-from matplotlib import ticker
 
 a6000 = "\
  DEVICE &  1 & 2.3k & 12 hours  & 2.3k & 12 hours  \\\
@@ -92,20 +90,20 @@ def prase_str(text):
 
 def nice_str(x):
     if x >= 10000000:
-        return f"{x/1000000:.0f}M"
+        return f"{x / 1000000:.0f}M"
     elif x >= 1000000:
-        return f"{x/1000000:.1f}M"
+        return f"{x / 1000000:.1f}M"
     elif x >= 10000:
-        return f"{x/1000:.0f}k"
+        return f"{x / 1000:.0f}k"
     elif x >= 1000:
-        return f"{x/1000:.1f}k"
+        return f"{x / 1000:.1f}k"
     else:
         return f"{x:.0f}"
 
 
 def nice_bs(x):
     if x > 1024:
-        return f"{x//1024}k"
+        return f"{x // 1024}k"
     else:
         return f"{x}"
 
@@ -140,9 +138,7 @@ ax1.set_xlabel("Batch size")
 ax1.set_ylabel("Steps per second")
 ax2.set_xlabel("Batch size")
 ax2.set_ylabel("Steps per second")
-ax1.set_xticks(
-    [1, 8, 32, 128, 512, 2048, 8192, 8192 * 4, 8192 * 4 * 4, 8192 * 4 * 4 * 4]
-)
+ax1.set_xticks([1, 8, 32, 128, 512, 2048, 8192, 8192 * 4, 8192 * 4 * 4, 8192 * 4 * 4 * 4])
 ax2.set_xticks([1, 8, 32, 128, 512, 2048, 8192])
 ax1.xaxis.set_major_formatter(lambda x, pos: nice_bs(x))
 ax2.xaxis.set_major_formatter(lambda x, pos: nice_bs(x))

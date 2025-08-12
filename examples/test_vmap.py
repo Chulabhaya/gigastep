@@ -1,9 +1,7 @@
-import time
-
 import jax
 import jax.numpy as jnp
+
 from gigastep import GigastepEnv
-import time
 
 if __name__ == "__main__":
     n_agents = 20
@@ -18,9 +16,7 @@ if __name__ == "__main__":
         t += 1
         rng, key = jax.random.split(rng, 2)
 
-        actions = jax.random.uniform(
-            key, shape=(batch_size, n_agents, 3), minval=-1, maxval=1
-        )
+        actions = jax.random.uniform(key, shape=(batch_size, n_agents, 3), minval=-1, maxval=1)
         rng, key = jax.random.split(rng, 2)
         key = jax.random.split(key, batch_size)
         # print("states.shape", states[0]["x"].shape)

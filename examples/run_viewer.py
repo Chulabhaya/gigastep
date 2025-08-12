@@ -1,9 +1,5 @@
 import jax
-
-import time
 import jax.numpy as jnp
-
-from gigastep import GigastepEnv, stack_agents, GigastepViewer, make_scenario
 
 from gigastep import GigastepViewer, make_scenario
 

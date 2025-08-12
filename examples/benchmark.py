@@ -3,13 +3,11 @@ import time
 
 import jax
 import jax.numpy as jnp
+import optax
+from flax import linen as nn
 from flax.training import train_state
 
 from gigastep import GigastepEnv
-import time
-import time
-import optax
-from flax import linen as nn
 
 
 def create_train_state(model, rng, in_dim):
@@ -28,9 +26,7 @@ def run_vmapped_no_scan(env, params, batch_size, n_steps, repeats=1):
         for i in range(n_steps):
             rng, key = jax.random.split(rng, 2)
             if params is None:
-                actions = jnp.zeros(
-                    (batch_size, env.n_agents, env.action_space.shape[0])
-                )
+                actions = jnp.zeros((batch_size, env.n_agents, env.action_space.shape[0]))
             else:
                 actions = params.apply_fn(params.params, obs)
             key = jax.random.split(key, batch_size)
@@ -239,9 +235,7 @@ def main():
         args.n_agents,
         args.obs_type,
     ):
-        run_vmapped_scan(
-            env, nn_state, args.n_steps * args.repeats, args.batch_size, args.repeats
-        )
+        run_vmapped_scan(env, nn_state, args.n_steps * args.repeats, args.batch_size, args.repeats)
     # with GigastepTimer(
     #     "vmapped no scan",
     #     args.n_steps,
