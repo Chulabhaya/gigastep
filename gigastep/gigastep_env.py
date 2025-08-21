@@ -135,6 +135,7 @@ class GigastepEnv:
         jit=True,
         debug_reward=False,
         precision=jnp.float32,
+        enable_view_cone_overlay=False,
     ):
         self.n_agents = n_agents
         self.very_close_cone_depth = jnp.square(very_close_cone_depth)
@@ -168,6 +169,9 @@ class GigastepEnv:
         self.reward_hit_waypoint = reward_hit_waypoint
         self.divide_reward_by_team_size = divide_reward_by_team_size
         self.precision = precision
+
+        # --- Used for visualization ---
+        self.enable_view_cone_overlay = enable_view_cone_overlay
 
         if per_agent_sprites is None:
             per_agent_sprites = jnp.ones(n_agents, dtype=jnp.int32)
@@ -341,16 +345,16 @@ class GigastepEnv:
 
     # @partial(jax.jit, static_argnums=(0,))
     @type_enforced.Enforcer
-    def step(self, states: tuple[dict, dict], actions, rng):
+    def step(self, states: tuple[dict, dict], actions, key):
         """returns obs, next_states, reward, dones, episode_done"""
+        # --- Step through individual agent physics models --- #
         v_step = jax.vmap(self._step_agents)
-
         agent_states, map_state = states
         agent_states = v_step(agent_states, actions, self._per_agent_thrust)
 
-        num_agents = agent_states["x"].shape[0]
-        # Check if agents are out of bounds
+        # --- Get current agent states --- #
         # x, y, z, v, heading, health, seen, alive, teams = next_states.T
+        num_agents = agent_states["x"].shape[0]
         x = agent_states["x"]
         y = agent_states["y"]
         z = agent_states["z"]
@@ -358,31 +362,43 @@ class GigastepEnv:
         teams = self._per_agent_team
         tracked = agent_states["tracked"]
 
-        # Previous alive agents
+        # Get agents and teams that are alive going into this step
         alive_pre = agent_states["alive"]
         alive_team1_pre = jnp.sum(alive * (teams == 0))
         alive_team2_pre = jnp.sum(alive * (teams == 1))
 
-        ### Waypoints
+        # --- Check waypoint status, if enabled --- #
         hit_waypoint = 0
         waypoint_location = map_state["waypoint_location"]
         waypoint_enabled = map_state["waypoint_enabled"]
         if self.enable_waypoints:
+            # Check which agents are currently in the waypoint box
             hit_waypoint = (map_state["waypoint_enabled"] > 0) * (
                 (x >= waypoint_location[0])
                 & (x <= waypoint_location[2])
                 & (y >= waypoint_location[1])
                 & (y <= waypoint_location[3])
             )
-            rng, key1, key2, key3 = jax.random.split(rng, 4)
+
+            # Generate RNG keys
+            key, waypoint_time_key, waypoint_location_key, waypoint_appear_key = jax.random.split(
+                key, 4
+            )
+
+            # Waypoints last for a certain period of time, this ticks the current waypoint's timer down
             waypoint_enabled = waypoint_enabled - self.time_delta
-            # Waypoint disappears when the time runs up or if it is collected
+
+            # Waypoint disappears when the time runs up or if it is collected (`hit_waypoint` has any 1s)
             waypoint_enabled = (jnp.sum(hit_waypoint) == 0).astype(jnp.float32) * waypoint_enabled
 
-            # There is a 5% chance a new waypoint appears
-            waypoint_appear = (waypoint_enabled <= 0) & (jax.random.uniform(key3) < 0.05)
+            # If there's no waypoint active currently, then there's a 5% chance for a new one to pop up
+            waypoint_appear = (waypoint_enabled <= 0) & (
+                jax.random.uniform(waypoint_appear_key) < 0.05
+            )
+
+            # Sample new waypoint's location and duration
             new_waypoint_location = jax.random.uniform(
-                key2,
+                waypoint_location_key,
                 shape=(2,),
                 minval=jnp.zeros(2),
                 maxval=jnp.array(self.limits) - self.waypoint_size,
@@ -395,24 +411,26 @@ class GigastepEnv:
                     new_waypoint_location[1] + self.waypoint_size,
                 ]
             )
-            new_waypoint_time = jax.random.uniform(key1, minval=5, maxval=10)
+            new_waypoint_time = jax.random.uniform(waypoint_time_key, minval=5, maxval=10)
+
+            # Refresh with new waypoint location and timer or keep the existing ones
             waypoint_location = (
                 waypoint_appear * new_waypoint_location + (1 - waypoint_appear) * waypoint_location
             )
             waypoint_enabled = jnp.maximum(waypoint_enabled, 0)
             waypoint_enabled = waypoint_enabled + waypoint_appear * new_waypoint_time
 
-        ### Out of bounds check
+        # --- Check if any agents are out of bounds in XY geographic space --- #
         out_of_bounds = (x < 0) | (x > self.limits[0]) | (y < 0) | (y > self.limits[1])
         alive = alive * (1 - out_of_bounds)
 
-        ### Agent-Agent collision check(cylinder shaped collision)
+        # --- Check if any agents have collided in 3D cylindrical game space --- #
+        dx = x[:, None] - x[None, :]
+        dy = y[:, None] - y[None, :]
+        dz = z[:, None] - z[None, :]
         collided = (
-            (
-                jnp.square(x[:, None] - x[None, :]) + jnp.square(y[:, None] - y[None, :])
-                < self.collision_range
-            )
-            & (jnp.abs(z[:, None] - z[None, :]) < self.collision_altitude)
+            (jnp.square(dx) + jnp.square(dy) < self.collision_range)
+            & (jnp.abs(dz) < self.collision_altitude)
             & (alive[:, None] == 1)
             & (alive[None, :] == 1)
         )
@@ -421,7 +439,7 @@ class GigastepEnv:
         collided = jnp.sum(collided, axis=1) > 0
         alive = alive * (1 - collided)
 
-        ### Map obstacles collision check ###
+        # --- Check if any agents have collided with obstacles --- #
         # A box is an array of [x1, y1, x2, y2]
         boxes = self._maps["boxes"][map_state["map_idx"]]
         hit_box = (
@@ -434,20 +452,22 @@ class GigastepEnv:
         hit_box = hit_box.astype(jnp.float32)
         alive = alive * (1 - hit_box)
 
-        ### Agent sight check ###
+        # --- Check which agents are within guaranteed detection range --- #
         # Very close agents are surely detected
-        very_close = (
-            jnp.square(x[:, None] - x[None, :]) + jnp.square(y[:, None] - y[None, :])
-            < self.very_close_cone_depth
-        )
+        very_close = jnp.square(dx) + jnp.square(dy) < self.very_close_cone_depth
+
+        # --- Check what agents see with view cone and damage cone --- #
         # Agents in cone are detected with probability inversely proportional to distance
-        closness_score = (
-            jnp.square(x[:, None] - x[None, :]) + jnp.square(y[:, None] - y[None, :])
-        ) / (self.cone_depth * self._per_agent_range[None, :])
-        closeness_score_damage = (
-            jnp.square(x[:, None] - x[None, :]) + jnp.square(y[:, None] - y[None, :])
-        ) / (self.damage_cone_depth * self._per_agent_damage_range[None, :])
-        angles2 = jnp.arctan2(y[:, None] - y[None, :], x[:, None] - x[None, :])
+        closeness_score = (jnp.square(dx) + jnp.square(dy)) / (
+            self.cone_depth * self._per_agent_range[None, :]
+        )
+        closeness_score_damage = (jnp.square(dx) + jnp.square(dy)) / (
+            self.damage_cone_depth * self._per_agent_damage_range[None, :]
+        )
+
+        # Calculates global bearing with respect to +x axis
+        angles2 = jnp.arctan2(dy, dx)
+        # Subtracting the observer's heading changes reference frame to body, relative bearing
         angles = (
             jnp.fmod(
                 angles2 - agent_states["heading"][None, :] + jnp.pi + 2 * jnp.pi,
@@ -455,19 +475,30 @@ class GigastepEnv:
             )
             - jnp.pi
         )
-        in_cone = jnp.abs(angles) < self.cone_angle
-        in_damage_cone = jnp.abs(angles) < self.damage_cone_angle
+        # Use half-angle for angle check because the absolute value doubles the accepted angle range
+        in_cone = jnp.abs(angles) < (self.cone_angle / 2)
+        in_damage_cone = jnp.abs(angles) < (self.damage_cone_angle / 2)
+
+        # Add stochasticity to cone detection
         if self.use_stochastic_obs:
-            # if not in cone, set closness_score to 1.1 so that it is always greater than rand
-            in_cone_score = jnp.clip(closness_score, 0, 1) + (1 - in_cone) * 1.1
-            rng, key = jax.random.split(rng)
-            rand = jax.random.uniform(key, shape=in_cone_score.shape)
-            stochastic_detected = in_cone_score < rand
-            # In damage cone, we always detect
-            stochastic_detected = stochastic_detected | (closness_score <= 1 & in_damage_cone)
+            # If not in cone, set closness_score to 1.1 so that it is always greater than the stochastic detection threshold
+            in_cone_score = jnp.clip(closeness_score, 0, 1) + (1 - in_cone) * 1.1
+            key, stochastic_detection_key = jax.random.split(key)
+            stochastic_detection_thres = jax.random.uniform(
+                stochastic_detection_key, shape=in_cone_score.shape
+            )
+            # If target is closer to observer then score is lower which makes it more likely that it will be less
+            # than the stochastic detection threshold (which is sampled between 0 and 1), which means more likely
+            # to detect
+            stochastic_detected = in_cone_score < stochastic_detection_thres
+            # In damage cone, we always detect (but gated by view cone distance, can't fire at what you can't see)
+            stochastic_detected = stochastic_detected | ((closeness_score <= 1) & in_damage_cone)
         else:
-            stochastic_detected = closness_score <= 1 & in_cone
-        shoot_target = closeness_score_damage <= 1 & in_damage_cone
+            stochastic_detected = (closeness_score <= 1) & in_cone
+
+        # --- Deal damage based on view cone and damage cone information --- #
+        # Able to shoot if target is within the damage cone and within damage range
+        shoot_target = (closeness_score_damage <= 1) & in_damage_cone
 
         # Check if agents can see each other (not same team and alive)
         can_detect = (
@@ -475,11 +506,13 @@ class GigastepEnv:
         )
         # Probabilistic detection
         has_detected = can_detect & ((very_close == 1) | stochastic_detected)
-        deal_damage = can_detect & shoot_target & has_detected
 
+        # Determine whether agent can deal damage based on detection status
+        deal_damage = can_detect & shoot_target & has_detected
         deal_damage = deal_damage.astype(jnp.float32)
-        tracked = tracked + deal_damage
-        tracked = tracked * deal_damage  # reset to 0 if not detected
+
+        # Update consecutive tracking time of opponent if it fits within damage criteria, otherwise reset tracking time
+        tracked = jnp.where(deal_damage, tracked + 1.0, 0.0)
 
         # Damage is proportional to the number of times an agent has been tracked
         # Damage starts at 3 and increases by 1 for each time an agent is tracked up to 10
@@ -487,14 +520,14 @@ class GigastepEnv:
             jnp.clip(tracked, self.min_tracking_time, self.max_tracking_time)
             - self.min_tracking_time
         )
+        # Because we're following row = target, col = observer convention, sum over col
+        # to get damage each target took from all the observers
         takes_damage = jnp.sum(deal_damage, axis=1)
 
+        # --- Update agent health based on damage taken --- #
         # Check if agents are in the cone of vision of another agent
         has_detected = has_detected.astype(jnp.float32)
-        # deal_damage = has_shooted * in_damage_cone
-
         seen = jnp.sum(has_detected, axis=1)  # can be greater than 1
-        # takes_damage = jnp.sum(deal_damage, axis=1)  # can be greater than 1
         health = (
             agent_states["health"]
             - takes_damage * self.damage_per_second * self.time_delta
@@ -503,6 +536,8 @@ class GigastepEnv:
         ) * alive
         health = jnp.clip(health, 0, self._per_agent_max_health)  # max health is agent dependent
 
+        # Get status of self detecting or damaging other agents, sum
+        # over rows because cols represent observers
         detected_other_agent = jnp.sum(has_detected, axis=0)
         damages_other_agent = jnp.sum(deal_damage, axis=0)
 
@@ -529,6 +564,7 @@ class GigastepEnv:
             # if max_episode_length is not set then episode continues until all agents of one team are dead
             episode_done = episode_done | (map_state["episode_length"] >= self.max_episode_length)
 
+        # --- Rewards --- #
         reward_info = {
             "reward_game_won": jnp.zeros((num_agents,)),
             "reward_defeat_one_opponent": jnp.zeros((num_agents,)),
@@ -539,14 +575,17 @@ class GigastepEnv:
             "reward_collision_agent": jnp.zeros((num_agents,)),
             "reward_collision_obstacle": jnp.zeros((num_agents,)),
         }
-        ### REWARDS ###
+
+        # Waypoint reward
         if self.reward_hit_waypoint > 0:
             reward = self.reward_hit_waypoint * hit_waypoint
         else:
             reward = jnp.zeros(num_agents)
 
+        # Idling reward per-agent
         reward = reward + self._per_agent_idle_reward
 
+        # Reward for killing an opponent
         if self.reward_defeat_one_opponent > 0:
             reward_defeat_one_opponent = (
                 (alive_team1 - alive_team1_pre)  #  * 0.5
@@ -565,6 +604,7 @@ class GigastepEnv:
                 self.reward_defeat_one_opponent * reward_defeat_one_opponent
             )
 
+        # Detection reward
         if self.reward_detection > 0:
             # Positive reward for detecting other agents
             # Negative reward for being detected (weighted less than detecting to encourage exploration)
@@ -575,9 +615,9 @@ class GigastepEnv:
             reward = reward + self.reward_detection * reward_detection
             reward_info["reward_detection"] = self.reward_detection * reward_detection
 
+        # Damage reward
         if self.reward_damage > 0:
             # Positive reward for dealing damage to other agents
-
             # Negative reward for taking damage from other agents
             reward_damage = (
                 damages_other_agent * self.time_delta * alive
@@ -594,7 +634,6 @@ class GigastepEnv:
 
         # Negative reward for collisions, going out of bounds and hitting boxes
         # Negative reward for dying (health drops to 0)
-
         if self.reward_collision_agent > 0:
             reward_collision_agent = collided
             reward = reward - self.reward_collision_agent * reward_collision_agent
@@ -625,7 +664,7 @@ class GigastepEnv:
         reward = map_state["aux_rewards_factor"] * reward + self.reward_game_won * game_won_reward
         reward_info["reward_game_won"] = self.reward_game_won * game_won_reward
 
-        # normalize reward to number of agents. Make the reward in a similar level for different number of agents
+        # Normalize reward to number of agents. Make the reward in a similar level for different number of agents
         if self.divide_reward_by_team_size:
             reward = reward / num_agents
         reward = reward * alive_pre  # if agent was already dead, reward is zero
@@ -645,14 +684,19 @@ class GigastepEnv:
             for k, v in reward_info.items():
                 agent_states[k] = v
 
+        # --- Set up next state --- #
         next_states = (agent_states, map_state)
+
+        # --- Get agent observations from state --- #
         v_get_observation = jax.vmap(self.get_observation, in_axes=(None, None, None, 0, 0))
-        rng = jax.random.split(rng, num_agents)
+        key = jax.random.split(key, num_agents)
         obs = v_get_observation(
-            next_states, has_detected, takes_damage > 0, rng, jnp.arange(num_agents)
+            next_states, has_detected, takes_damage > 0, key, jnp.arange(num_agents)
         )
 
+        # --- Set up agent done status --- #
         dones = (1 - alive).astype(jnp.bool_)
+
         return obs, next_states, reward, dones, episode_done
 
     def get_dones(self, states):
@@ -678,27 +722,36 @@ class GigastepEnv:
         teams = self._per_agent_team
         heading = agent_states["heading"]
 
+        # --- Determine comms --- #
         if self.use_stochastic_comm:
+            # Get distance from current agent to other agents
             distance = jnp.sqrt(
                 jnp.square(x[agent_id, None] - x[None, :])
                 + jnp.square(y[agent_id, None] - y[None, :])
             )
+
+            # Scale distance by max communication range, can be greater than 1 which is clipped
             distance = distance / self.max_communication_range
             distance = jnp.clip(distance, 0, 1)
-            # Dead agents are out of communication range
+
+            # Dead and enemy agents are out of communication range (their distance is always > rand)
             distance = distance + (1 - alive[None, :]) * 2 + (teams[agent_id] != teams[None, :])
             rand = jax.random.uniform(rng, shape=distance.shape, dtype=self.precision)
             communicate = distance <= rand
 
+            # Only pass through detections from allies that you can communicate with
             seen = (
                 has_detected + jnp.eye(has_detected.shape[0], dtype=self.precision)
             ) * communicate
         else:
+            # Only pass through detections from allies that you can communicate with
             seen = has_detected + jnp.eye(has_detected.shape[0], dtype=self.precision) * (
                 teams[agent_id] == teams[None, :]
             ) * (alive[None, :] > 0)
+
         seen = jnp.sum(seen, axis=1) > 0
 
+        # --- RGB observations --- #
         rgb_obs, vector_obs = None, None
         if "rgb" in self._obs_type:
             x = jnp.round(x * self.resolution[0] / self.limits[0]).astype(jnp.int32)
@@ -761,7 +814,7 @@ class GigastepEnv:
                 xi = x - i * jnp.cos(heading)
                 yi = y - i * jnp.sin(heading)
                 xi = jnp.clip(xi, 0, self.resolution[0] - 1).astype(jnp.int32)
-                yi = jnp.clip(yi, 0, self.resolution[0] - 1).astype(jnp.int32)
+                yi = jnp.clip(yi, 0, self.resolution[1] - 1).astype(jnp.int32)
                 # Own team tail is blue
                 rgb_obs = rgb_obs.at[xi, yi, 2].add(intensity * own_team * seen, mode="drop")
                 # Other team tail is red
@@ -776,6 +829,8 @@ class GigastepEnv:
             # rgb_obs = jnp.maximum(
             #     rgb_obs, 255 * (1 - alive[agent_id].astype(jnp.uint8))
             # )
+
+        # --- Vector observations --- #
         if "vector" in self._obs_type:
             # sort by distance from ego
             distance = jnp.sqrt(jnp.square(x[agent_id] - x) + jnp.square(y[agent_id] - y))
@@ -883,7 +938,7 @@ class GigastepEnv:
     @partial(jax.jit, static_argnums=(0,))
     @type_enforced.Enforcer
     def get_global_observation(self, states: tuple[dict, dict]):
-        """return obs"""
+        """return obs with FOV cones overlaid by team color"""
         agent_states, map_state = states
         x = agent_states["x"]
         y = agent_states["y"]
@@ -892,20 +947,21 @@ class GigastepEnv:
         teams = self._per_agent_team
         heading = agent_states["heading"]
 
-        # x, y, z, v, heading, health, seen, alive, teams = states.T
-        x = jnp.round(x * self.resolution[0] / self.limits[0]).astype(jnp.int32)
-        y = jnp.round(y * self.resolution[1] / self.limits[1]).astype(jnp.int32)
-        z = jnp.round(z * 255 / self.z_max).astype(jnp.uint8)
-        alive = alive.astype(jnp.uint8)
-        teams = teams.astype(jnp.uint8)
+        # --- Convert to pixel-space for drawing ---
+        x_pix = jnp.round(x * self.resolution[0] / self.limits[0]).astype(jnp.int32)
+        y_pix = jnp.round(y * self.resolution[1] / self.limits[1]).astype(jnp.int32)
+        z_u8 = jnp.round(z * 255 / self.z_max).astype(jnp.uint8)
+        alive_u8 = alive.astype(jnp.uint8)
+        teams_u8 = teams.astype(jnp.uint8)
         obs = self._prerendered_maps[map_state["map_idx"]]
 
-        # Draw border
+        # --- Draw borders --- #
         obs = obs.at[:, 0, :].max(255)
         obs = obs.at[:, self.resolution[1] - 1, :].max(255)
         obs = obs.at[0, :, :].max(255)
         obs = obs.at[self.resolution[0] - 1, :, :].max(255)
 
+        # --- Draw waypoints --- #
         if self.enable_waypoints:
             waypoint_num_pixels_x = max(
                 int(self.waypoint_size * self.resolution[0] / self.limits[0]), 1
@@ -926,19 +982,90 @@ class GigastepEnv:
                 for iy in range(waypoint_num_pixels_y):
                     obs = obs.at[waypoint_start_x + ix, waypoint_start_y + iy].set(waypoint_color)
 
-        team1 = teams
-        team2 = 1 - teams
-
+        # --- Draw tails --- #
+        team1 = teams_u8
+        team2 = 1 - teams_u8
         tail_length = 5
         for i in range(1, tail_length):
             intensity = jnp.uint8(255 - 255 * i / tail_length)
-            xi = x - i * jnp.cos(heading)
-            yi = y - i * jnp.sin(heading)
+            xi = x_pix - i * jnp.cos(heading)
+            yi = y_pix - i * jnp.sin(heading)
             xi = jnp.clip(xi, 0, self.resolution[0] - 1).astype(jnp.int32)
-            yi = jnp.clip(yi, 0, self.resolution[0] - 1).astype(jnp.int32)
-            obs = obs.at[xi, yi, 0].add(intensity * team1 * alive, mode="drop")
-            obs = obs.at[xi, yi, 2].add(intensity * team2 * alive, mode="drop")
-        obs = draw_all_agents(obs, x, y, z, teams, alive, agent_states["sprite"])
+            yi = jnp.clip(yi, 0, self.resolution[1] - 1).astype(jnp.int32)
+            obs = obs.at[xi, yi, 0].add(intensity * team1 * alive_u8, mode="drop")
+            obs = obs.at[xi, yi, 2].add(intensity * team2 * alive_u8, mode="drop")
+
+        # --- Draw agents --- #
+        obs = draw_all_agents(obs, x_pix, y_pix, z_u8, teams_u8, alive_u8, agent_states["sprite"])
+
+        # --- View cone overlay (not damage cone) --- #
+        if self.enable_view_cone_overlay:
+            # Pixel grid (X first dimension = height, Y second = width)
+            gx = jnp.arange(self.resolution[0], dtype=self.precision)[None, :, None]  # [1, H, 1]
+            gy = jnp.arange(self.resolution[1], dtype=self.precision)[None, None, :]  # [1, 1, W]
+
+            # Agents broadcast
+            xi = x_pix.astype(self.precision)[:, None, None]  # [N, 1, 1]
+            yi = y_pix.astype(self.precision)[:, None, None]  # [N, 1, 1]
+            hi = heading[:, None, None]  # [N, 1, 1]
+            alive_mask = alive[:, None, None] > 0  # [N, 1, 1]
+            team1_mask = teams_u8[:, None, None]  # [N, 1, 1]
+            team2_mask = (1 - teams_u8)[:, None, None]  # [N, 1, 1]
+
+            # Pixel deltas in PIXELS -> broadcast to [N, H, W]
+            dx_pix = jnp.broadcast_to(
+                gx - xi, (x_pix.shape[0], self.resolution[0], self.resolution[1])
+            )
+            dy_pix = jnp.broadcast_to(
+                gy - yi, (y_pix.shape[0], self.resolution[0], self.resolution[1])
+            )
+
+            # Convert to ENV units before distance/angle checks (preserves cone size)
+            sx = self.limits[0] / self.resolution[0]
+            sy = self.limits[1] / self.resolution[1]
+            dx_env = dx_pix * sx
+            dy_env = dy_pix * sy
+
+            dist2 = dx_env * dx_env + dy_env * dy_env
+            dirx = jnp.cos(hi)
+            diry = jnp.sin(hi)
+            dot = dx_env * dirx + dy_env * diry
+
+            # Angle check via cosine threshold (use HALF-FOV)
+            half = (
+                0.5 * self.cone_angle
+            )  # radians; if using degrees, do: 0.5 * jnp.deg2rad(self.cone_angle)
+            cosang = dot / jnp.sqrt(jnp.maximum(dist2, 1e-6))
+            cos_thresh = jnp.cos(half)
+            ang_ok = cosang >= cos_thresh
+
+            # Front-gate only when FoV <= 180° (half <= 90°)
+            # Equivalent to: front_ok = jnp.where(half <= jnp.pi/2, dot > 0, True)
+            front_ok = (dot > 0) | (half > (jnp.pi / 2))
+
+            # Per-agent range in ENV units
+            # cone_depth is squared; effective range^2 = cone_depth * per_agent_range
+            range2_env = (self.cone_depth * self._per_agent_range).astype(self.precision)[
+                :, None, None
+            ]
+            in_range = dist2 <= range2_env
+
+            fov_mask = (ang_ok & front_ok & in_range & alive_mask).astype(jnp.uint16)  # [N, H, W]
+
+            # Accumulate by team and overlay with modest opacity
+            opacity = jnp.uint16(64)  # tweak 32..96 for lighter/darker cones
+            r_overlay = jnp.clip(
+                jnp.sum(fov_mask * team1_mask.astype(jnp.uint16), axis=0) * opacity, 0, 255
+            ).astype(jnp.uint8)
+            b_overlay = jnp.clip(
+                jnp.sum(fov_mask * team2_mask.astype(jnp.uint16), axis=0) * opacity, 0, 255
+            ).astype(jnp.uint8)
+
+            # Blend by taking the max so cones are visible but don't remove existing features
+            obs = obs.at[:, :, 0].max(r_overlay)
+            obs = obs.at[:, :, 2].max(b_overlay)
+
+        # Always return the image (even if overlay disabled)
         return obs
 
     @partial(jax.jit, static_argnums=(0,))

@@ -5,6 +5,7 @@ logdir
 .vscode/
 testing/
 outputs/
+checkpoints/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
