@@ -89,10 +89,10 @@ class GigastepEnv:
     def __init__(
         self,
         very_close_cone_depth=1.0,
-        cone_depth=3.0,
-        cone_angle=jnp.pi * 0.75,
-        damage_cone_depth=2.05,
-        damage_cone_angle=jnp.pi / 4,
+        cone_depth=2.45,
+        cone_angle=jnp.pi,
+        damage_cone_depth=1.0,
+        damage_cone_angle=jnp.pi,
         damage_per_second=1,
         min_tracking_time=3,
         max_tracking_time=10,
@@ -136,6 +136,7 @@ class GigastepEnv:
         debug_reward=False,
         precision=jnp.float32,
         enable_view_cone_overlay=False,
+        cone_detect_prob=0.60,
     ):
         self.n_agents = n_agents
         self.very_close_cone_depth = jnp.square(very_close_cone_depth)
@@ -169,6 +170,7 @@ class GigastepEnv:
         self.reward_hit_waypoint = reward_hit_waypoint
         self.divide_reward_by_team_size = divide_reward_by_team_size
         self.precision = precision
+        self.cone_detect_prob = jnp.asarray(cone_detect_prob, dtype=self.precision)
 
         # --- Used for visualization ---
         self.enable_view_cone_overlay = enable_view_cone_overlay
@@ -479,19 +481,19 @@ class GigastepEnv:
         in_cone = jnp.abs(angles) < (self.cone_angle / 2)
         in_damage_cone = jnp.abs(angles) < (self.damage_cone_angle / 2)
 
+        # Inside view cone AND within view range (still respect depth/range)
+        in_view = (closeness_score <= 1) & in_cone
+
         # Add stochasticity to cone detection
         if self.use_stochastic_obs:
-            # If not in cone, set closness_score to 1.1 so that it is always greater than the stochastic detection threshold
-            in_cone_score = jnp.clip(closeness_score, 0, 1) + (1 - in_cone) * 1.1
+            # Bernoulli detect with probability self.cone_detect_prob
             key, stochastic_detection_key = jax.random.split(key)
-            stochastic_detection_thres = jax.random.uniform(
-                stochastic_detection_key, shape=in_cone_score.shape
+            u = jax.random.uniform(
+                stochastic_detection_key, shape=in_view.shape, dtype=self.precision
             )
-            # If target is closer to observer then score is lower which makes it more likely that it will be less
-            # than the stochastic detection threshold (which is sampled between 0 and 1), which means more likely
-            # to detect
-            stochastic_detected = in_cone_score < stochastic_detection_thres
-            # In damage cone, we always detect (but gated by view cone distance, can't fire at what you can't see)
+            # Detect iff U < p
+            stochastic_detected = in_view & (u < self.cone_detect_prob)
+            # Damage cone: always detect, gated by view cone
             stochastic_detected = stochastic_detected | ((closeness_score <= 1) & in_damage_cone)
         else:
             stochastic_detected = (closeness_score <= 1) & in_cone
